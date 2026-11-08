@@ -1,0 +1,138 @@
+name: Сборка Беспредел
+
+on:
+  push:
+    branches: [main, master]
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  FLUTTER_VERSION: '3.24.5'
+
+jobs:
+  android:
+    name: Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: nttld/setup-ndk@v1
+        id: ndk
+        with:
+          ndk-version: r26d
+          add-to-path: false
+
+      - name: Ядра (Xray, ByeDPI, hev-socks5-tunnel)
+        env:
+          NDK: ${{ steps.ndk.outputs.ndk-path }}
+        run: bash scripts/build_android_cores.sh
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Платформенные файлы
+        run: |
+          flutter create --org com.domovoi4ik --project-name bespredel --platforms=android .
+          bash scripts/patch_android.sh
+
+      - name: Сборка APK
+        run: |
+          flutter pub get
+          flutter build apk --release --target-platform android-arm64,android-x64
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk dist/Bespredel-android.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bespredel-android
+          path: dist/Bespredel-android.apk
+
+  windows:
+    name: Windows x64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: MINGW64
+          install: >-
+            git
+            make
+            mingw-w64-x86_64-gcc
+
+      - name: ByeDPI (ciadpi.exe)
+        shell: msys2 {0}
+        run: |
+          git clone --depth 1 https://github.com/hufrea/byedpi /tmp/byedpi
+          cd /tmp/byedpi
+          make windows CC=gcc || make windows CC=x86_64-w64-mingw32-gcc
+          mkdir -p "$GITHUB_WORKSPACE/cores-win"
+          EXE=$(ls ciadpi*.exe | head -n1)
+          cp "$EXE" "$GITHUB_WORKSPACE/cores-win/bp-ciadpi.exe"
+          for dll in $(ldd "$EXE" | grep -i mingw64 | awk '{print $3}'); do cp "$dll" "$GITHUB_WORKSPACE/cores-win/"; done
+
+      - name: Ядра (Xray, zapret)
+        shell: pwsh
+        run: ./scripts/prepare_windows_cores.ps1 -Out "$env:GITHUB_WORKSPACE\cores-win"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Платформенные файлы
+        shell: pwsh
+        run: |
+          flutter create --org com.domovoi4ik --project-name bespredel --platforms=windows .
+          # Заголовок окна «Беспредел»
+          $main = 'windows/runner/main.cpp'
+          (Get-Content $main -Raw) -replace 'L"bespredel"', 'L"Беспредел"' | Set-Content $main -Encoding utf8
+          $rc = 'windows/runner/Runner.rc'
+          (Get-Content $rc -Raw) -replace '"com.domovoi4ik"', '"domovoi4ik"' | Set-Content $rc -Encoding utf8
+
+      - name: Сборка
+        shell: pwsh
+        run: |
+          flutter pub get
+          flutter build windows --release
+          $rel = 'build/windows/x64/runner/Release'
+          Copy-Item cores-win "$rel/cores" -Recurse -Force
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Compress-Archive -Path "$rel/*" -DestinationPath dist/Bespredel-windows-x64.zip -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Bespredel-windows
+          path: dist/Bespredel-windows-x64.zip
+
+  release:
+    name: Релиз
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [android, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: Беспредел ${{ github.ref_name }}
+          files: dist/*
+          body: |
+            **Беспредел** — обход блокировок для Windows и Android. Разработчик: domovoi4ik.
+            - `Bespredel-android.apk` — Android 7.0+
+            - `Bespredel-windows-x64.zip` — распакуй целиком и запусти `bespredel.exe`

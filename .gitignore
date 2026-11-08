@@ -1,0 +1,15 @@
+.dart_tool/
+.packages
+build/
+dist/
+.build-cores/
+cores-win/
+.flutter-plugins
+.flutter-plugins-dependencies
+*.iml
+.idea/
+.vscode/
+pubspec.lock
+android/app/src/main/jniLibs/
+android/.gradle/
+android/local.properties
