@@ -17,6 +17,9 @@ android {
     packagingOptions {
         jniLibs { useLegacyPackaging = true }
     }
+    buildTypes {
+        release { proguardFiles 'proguard-rules.pro' }
+    }
 }
 EOF
   if [ -n "${BP_STORE_PASS:-}" ] && [ -f bespredel.jks ]; then
@@ -48,6 +51,9 @@ android {
     }
     packaging {
         jniLibs { useLegacyPackaging = true }
+    }
+    buildTypes {
+        getByName("release") { proguardFiles("proguard-rules.pro") }
     }
 }
 EOF

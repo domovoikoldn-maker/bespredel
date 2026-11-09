@@ -226,6 +226,12 @@ class AppState extends ChangeNotifier {
           if (s.url.contains('barry-far')) s.enabled = true;
         }
       }
+      if ((j['cfgVer'] ?? 1) as int < 3) {
+        // v2.3: включаем новые проверенные источники
+        for (final s in sources) {
+          if (s.url.contains('vless-checker') || s.url.contains('zieng2/wl')) s.enabled = true;
+        }
+      }
       dnsPreset = (j['dnsPreset'] ?? 0) as int;
       ruDirect = (j['ruDirect'] ?? true) as bool;
       onlyReality = (j['onlyReality'] ?? false) as bool;
@@ -251,7 +257,7 @@ class AppState extends ChangeNotifier {
       'byedpiCustom': byedpiCustom,
       'zapretPreset': zapretPreset,
       'zapretName': zapretName,
-      'cfgVer': 2,
+      'cfgVer': 3,
       'dnsPreset': dnsPreset,
       'ruDirect': ruDirect,
       'onlyReality': onlyReality,

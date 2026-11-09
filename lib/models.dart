@@ -159,6 +159,16 @@ VlessServer? parseVless(String line) {
 
 /// Разбор содержимого подписки: обычный текст или base64.
 List<VlessServer> parseSubscription(String body) {
+  final t = body.trimLeft();
+  if (t.startsWith('{') || t.startsWith('[')) {
+    // JSON (например keys.json от vless-checker): достаём все ссылки из строк
+    final out = <VlessServer>[];
+    for (final m in RegExp(r'vless://[^\s"<>\\]+').allMatches(body)) {
+      final s = parseVless(m.group(0)!);
+      if (s != null) out.add(s);
+    }
+    return out;
+  }
   var text = body;
   if (!text.contains('://')) {
     text = tryBase64(text) ?? text;

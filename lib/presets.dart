@@ -49,6 +49,16 @@ const fragPresets = <FragPreset>[
 
 const defaultSources = <List<Object>>[
   // [имя, url, включён]
+  ['vless-checker — проверенные каждые 30 мин',
+    'https://raw.githubusercontent.com/tiagorrg/vless-checker/main/docs/keys.json', true],
+  ['zieng2 — VLESS universal (свежие)',
+    'https://raw.githubusercontent.com/zieng2/wl/main/vless_universal.txt', true],
+  ['zieng2 — VLESS lite',
+    'https://raw.githubusercontent.com/zieng2/wl/main/vless_lite.txt', true],
+  ['igareck — WHITE CIDR (проверенные)',
+    'https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/WHITE-CIDR-RU-checked.txt', false],
+  ['kort0881 — большой сборник (14 тыс., долго)',
+    'https://raw.githubusercontent.com/kort0881/vpn-vless-configs-russia/main/data/githubmirror/clean/vless.txt', false],
   ['igareck — ЧС VLESS (топ-150, моб.)',
     'https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS_mobile.txt', true],
   ['igareck — ЧС VLESS (все)',
