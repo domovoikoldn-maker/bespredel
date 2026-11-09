@@ -30,6 +30,10 @@ class AppState extends ChangeNotifier {
   int byedpiPreset = 0;
   String byedpiCustom = '';
   int zapretPreset = 0;
+  String zapretName = 'General';
+  List<ZapretPreset> zapretList = zapretFallback;
+  String? exitCountry; // страна выхода текущего маршрута
+  final checkNotes = <String, String>{};
   int dnsPreset = 0;
   bool ruDirect = true;
   bool onlyReality = false;
@@ -59,6 +63,7 @@ class AppState extends ChangeNotifier {
   ManagedProc? _xray;
   ManagedProc? _dpi;
   bool _zapretOn = false;
+  ManagedProc? _winws;
   bool _dnsOn = false;
   bool _vpnOn = false;
 
@@ -94,7 +99,8 @@ class AppState extends ChangeNotifier {
   List<VlessServer> get visibleServers {
     final l = servers.where((s) => !onlyReality || s.isReality).toList();
     int score(VlessServer s) {
-      if (s.alive) return s.delayMs!;
+      if (s.good) return s.delayMs!;
+      if (s.alive) return 50000 + s.delayMs!;
       if (s.tested) return 900000 + (s.tcpMs ?? 99999);
       if (s.tcpMs != null) return 100000 + s.tcpMs!;
       return 800000;
@@ -104,7 +110,9 @@ class AppState extends ChangeNotifier {
     return l;
   }
 
-  int get aliveCount => servers.where((s) => s.alive).length;
+  /// Рабочие и с «правильной» страной выхода.
+  int get aliveCount => servers.where((s) => s.good).length;
+  int get ruExitCount => servers.where((s) => s.alive && s.badExit).length;
 
   void log(String l) {
     final t = DateTime.now();
@@ -158,6 +166,10 @@ class AppState extends ChangeNotifier {
     }
     await _load();
     if (isWindows) {
+      final l = cores.loadZapretStrategies();
+      if (l.isNotEmpty) zapretList = l;
+    }
+    if (isWindows) {
       // восстановление после аварийного закрытия
       await WinNet.killOwnCores();
       isAdmin = await WinNet.isAdmin();
@@ -203,6 +215,14 @@ class AppState extends ChangeNotifier {
       byedpiPreset = (j['byedpiPreset'] ?? 0) as int;
       byedpiCustom = (j['byedpiCustom'] ?? '') as String;
       zapretPreset = (j['zapretPreset'] ?? 0) as int;
+      zapretName = (j['zapretName'] ?? 'General') as String;
+      if ((j['cfgVer'] ?? 1) as int < 2) {
+        // v2.1: белые списки igareck выходят через РФ — выключаем, barry-far включаем
+        for (final s in sources) {
+          if (s.url.contains('White-Lists')) s.enabled = false;
+          if (s.url.contains('barry-far')) s.enabled = true;
+        }
+      }
       dnsPreset = (j['dnsPreset'] ?? 0) as int;
       ruDirect = (j['ruDirect'] ?? true) as bool;
       onlyReality = (j['onlyReality'] ?? false) as bool;
@@ -227,6 +247,8 @@ class AppState extends ChangeNotifier {
       'byedpiPreset': byedpiPreset,
       'byedpiCustom': byedpiCustom,
       'zapretPreset': zapretPreset,
+      'zapretName': zapretName,
+      'cfgVer': 2,
       'dnsPreset': dnsPreset,
       'ruDirect': ruDirect,
       'onlyReality': onlyReality,
@@ -395,9 +417,10 @@ class AppState extends ChangeNotifier {
     }
     final alive = aliveCount;
     _idle();
-    status = 'Рабочих серверов: $alive';
+    final ru = ruExitCount;
+    status = 'Рабочих серверов: $alive${ru > 0 ? ' (+$ru с выходом в РФ — не годятся)' : ''}';
     final best = visibleServers.firstOrNull;
-    if (best != null && best.alive && (selected == null || !selected!.alive)) {
+    if (best != null && best.good && (selected == null || !selected!.good)) {
       selectedKey = best.key;
     }
     await save();
@@ -425,10 +448,13 @@ class AppState extends ChangeNotifier {
     }
     await Future.wait([
       for (var i = 0; i < b.length; i++)
-        httpProbe(testUrl, proxyPort: kTestBasePort + i, timeoutSec: 7).then((ms) {
+        httpProbe(testUrl, proxyPort: kTestBasePort + i, timeoutSec: 7).then((ms) async {
           b[i]
             ..tested = true
             ..delayMs = ms;
+          if (ms != null) {
+            b[i].country = await traceCountry('www.cloudflare.com', proxyPort: kTestBasePort + i, timeoutSec: 7);
+          }
         })
     ]);
     await p.kill();
@@ -504,7 +530,7 @@ class AppState extends ChangeNotifier {
       case BypassMode.byedpi:
         return 'ByeDPI • ${byedpiPreset < 0 ? 'своя стратегия' : byeDpiPresets[byedpiPreset].name}';
       case BypassMode.zapret:
-        return 'Zapret • ${zapretPresets[zapretPreset].name}';
+        return 'Zapret • $zapretName';
       case BypassMode.dns:
         return 'DNS • ${dns.name}';
       case BypassMode.auto:
@@ -517,12 +543,12 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     if (servers.isEmpty) await updateServers();
     if (servers.isNotEmpty && aliveCount == 0) {
-      await testServers(limit: 60);
+      await testServers(limit: 100);
     }
-    final alive = visibleServers.where((s) => s.alive).toList();
+    final alive = visibleServers.where((s) => s.good).toList();
     if (alive.length >= 2) return BypassMode.multi;
     if (alive.isNotEmpty) {
-      if (selected == null || !selected!.alive) selectedKey = alive.first.key;
+      if (selected == null || !selected!.good) selectedKey = alive.first.key;
       return BypassMode.vless;
     }
     log('Авто: рабочих VLESS нет, включаю фрагментацию + DNS для ИИ');
@@ -532,10 +558,10 @@ class AppState extends ChangeNotifier {
   int _multiCount = 0;
 
   Future<void> _connectMulti() async {
-    var pool = visibleServers.where((s) => s.alive).take(8).toList();
+    var pool = visibleServers.where((s) => s.good).take(8).toList();
     if (pool.isEmpty) {
-      await testServers(limit: 80);
-      pool = visibleServers.where((s) => s.alive).take(8).toList();
+      await testServers(limit: 100);
+      pool = visibleServers.where((s) => s.good).take(8).toList();
     }
     if (pool.isEmpty) throw Exception('Нет рабочих серверов. Попробуй режим ФРАГМЕНТ или ByeDPI');
     _multiCount = pool.length;
@@ -561,15 +587,24 @@ class AppState extends ChangeNotifier {
     } else if (isAndroid) {
       final ok = await AndroidVpn.prepare();
       if (!ok) throw Exception('Нет разрешения на VPN');
-      await AndroidVpn.start(socksPort: kSocksPort, dnsOnly: dnsOnly, title: 'Беспредел • ${activeMode?.title}');
+      await AndroidVpn.start(socksPort: kSocksPort, dnsOnly: dnsOnly, title: 'BESPREDEL • ${activeMode?.title}');
       _vpnOn = true;
+      var up = false;
+      for (var i = 0; i < 20 && !up; i++) {
+        await Future.delayed(const Duration(milliseconds: 250));
+        up = await AndroidVpn.isRunning();
+      }
+      if (!up) {
+        final err = await AndroidVpn.lastError();
+        throw Exception('VPN не поднялся${err.isEmpty ? '' : ': $err'}');
+      }
     }
   }
 
   Future<void> _connectVless() async {
     var s = selected;
     if (s == null) {
-      s = visibleServers.where((x) => x.alive).firstOrNull ?? visibleServers.firstOrNull;
+      s = visibleServers.where((x) => x.good).firstOrNull ?? visibleServers.firstOrNull;
       if (s == null) throw Exception('Нет серверов. Открой «Серверы» → «Обновить»');
       selectedKey = s.key;
     }
@@ -587,14 +622,19 @@ class AppState extends ChangeNotifier {
 
   Future<void> _connectZapret() async {
     if (!cores.hasZapret) throw Exception('zapret не найден в папке cores');
-    final args = zapretPresets[zapretPreset]
-        .args
-        .replaceAll('%BIN%', cores.zapretBin)
-        .replaceAll('%LIST%', cores.zapretList);
-    status = isAdmin ? 'Запускаю winws…' : 'Подтверди запуск от администратора…';
-    notifyListeners();
-    final err = await WinNet.startZapret(cores.winwsPath, args, cores.zapretDir);
-    if (err != null) throw Exception(err);
+    final p = zapretCurrent;
+    if (isAdmin) {
+      status = 'Запускаю winws ($zapretName)…';
+      notifyListeners();
+      await WinNet.killZapretDirect();
+      _winws = await cores.startWinws(p);
+      if (_winws == null) throw Exception('winws завершился сразу — смотри журнал');
+    } else {
+      status = 'Подтверди запуск от администратора…';
+      notifyListeners();
+      final err = await WinNet.startZapret(cores.winwsPath, cores.zapretArgs(p), cores.zapretBinDir);
+      if (err != null) throw Exception(err);
+    }
     _zapretOn = true;
     if (zapretWithDns) {
       final dnsOk = await WinNet.setDns(dnsPresets.firstWhere((d) => d.aiUnlock));
@@ -640,7 +680,12 @@ class AppState extends ChangeNotifier {
       await _dpi?.kill();
       _dpi = null;
       if (_zapretOn) {
-        await WinNet.stopZapret();
+        if (_winws != null) {
+          await _winws!.kill();
+          _winws = null;
+        } else {
+          await WinNet.stopZapret();
+        }
         _zapretOn = false;
       }
       if (_dnsOn) {
@@ -657,7 +702,9 @@ class AppState extends ChangeNotifier {
       status = 'Отключено';
       activeMode = null;
       activeServer = null;
+      exitCountry = null;
       checks.clear();
+      checkNotes.clear();
       notifyListeners();
     }
   }
@@ -684,19 +731,152 @@ class AppState extends ChangeNotifier {
 
   // ---------- Проверка сервисов ----------
 
+  ZapretPreset get zapretCurrent =>
+      zapretList.firstWhere((z) => z.name == zapretName, orElse: () => zapretList.first);
+
   Future<void> checkServices() async {
-    final viaProxy = _xray != null && !_xray!.exited;
+    if (checking.isNotEmpty) return;
+    final px = (_xray != null && !_xray!.exited) ? kHttpPort : null;
     for (final c in serviceChecks) {
       checking.add(c.$1);
     }
+    checkNotes.clear();
     notifyListeners();
-    await Future.wait(serviceChecks.map((c) async {
-      final ms = await httpProbe(c.$2,
-          proxyPort: viaProxy ? kHttpPort : null, timeoutSec: 10, strict: c.$1 == 'YouTube');
-      checks[c.$1] = ms ?? -1;
-      checking.remove(c.$1);
+
+    final viaServer = activeMode == BypassMode.vless || activeMode == BypassMode.multi;
+    final aiViaComss = !viaServer &&
+        (activeMode == BypassMode.dns ||
+            activeMode == BypassMode.fragment ||
+            activeMode == BypassMode.byedpi ||
+            (activeMode == BypassMode.zapret && _dnsOn));
+    exitCountry = await traceCountry('www.cloudflare.com', proxyPort: px);
+    notifyListeners();
+    bool badCc(String? cc) => cc != null && badExitCountries.contains(cc);
+
+    void done(String name, int? ms, [String note = '']) {
+      checks[name] = ms ?? -1;
+      if (note.isNotEmpty) checkNotes[name] = note;
+      checking.remove(name);
       notifyListeners();
-    }));
+    }
+
+    Future<void> ai(String name, String host, String url) async {
+      final sw = Stopwatch()..start();
+      // Сервисы за Cloudflare сами говорят, из какой страны они видят запрос
+      final cc = host.isEmpty ? null : await traceCountry(host, proxyPort: px, timeoutSec: 10);
+      if (cc != null) {
+        done(name, badCc(cc) ? null : sw.elapsedMilliseconds, badCc(cc) ? 'регион $cc' : cc);
+        return;
+      }
+      final r = await httpGet(url, proxyPort: px, timeoutSec: 10);
+      final ms = sw.elapsedMilliseconds;
+      if (r == null || r.$1 >= 500 || r.$1 == 451 || r.$1 == 403) {
+        done(name, null, 'нет связи');
+      } else if (viaServer) {
+        if (exitCountry == null) {
+          done(name, ms, '?');
+        } else {
+          done(name, badCc(exitCountry) ? null : ms, badCc(exitCountry) ? 'регион $exitCountry' : exitCountry!);
+        }
+      } else if (aiViaComss) {
+        done(name, ms, 'Comss');
+      } else {
+        done(name, badCc(exitCountry) ? null : ms, badCc(exitCountry) ? 'регион ${exitCountry ?? ''}' : '');
+      }
+    }
+
+    await Future.wait([
+      () async {
+        final sw = Stopwatch()..start();
+        final web = await httpProbe('https://www.youtube.com/generate_204', proxyPort: px, timeoutSec: 8);
+        final vid = await httpGet('https://redirector.googlevideo.com/report_mapping?di=no', proxyPort: px, timeoutSec: 8);
+        final vidOk = vid != null && vid.$1 < 500;
+        if (web != null && vidOk) {
+          done('YouTube', sw.elapsedMilliseconds);
+        } else {
+          done('YouTube', null, web != null ? 'видео блок' : 'блок');
+        }
+      }(),
+      ai('Gemini', '', 'https://gemini.google.com/app'),
+      ai('Claude', 'claude.ai', 'https://claude.ai/login'),
+      ai('ChatGPT', 'chatgpt.com', 'https://chatgpt.com/'),
+      httpProbe('https://web.telegram.org/', proxyPort: px, timeoutSec: 10, strict: false)
+          .then((ms) => done('Telegram', ms)),
+      httpProbe('https://discord.com/api/v9/experiments', proxyPort: px, timeoutSec: 10, strict: false)
+          .then((ms) => done('Discord', ms)),
+    ]);
+  }
+
+  // ---------- Подбор стратегии zapret ----------
+
+  final zapretScores = <String, int>{};
+
+  Future<void> autoPickZapret() async {
+    if (busy || connected || !isWindows) return;
+    if (!isAdmin) {
+      status = 'Для подбора запусти Беспредел от администратора';
+      notifyListeners();
+      return;
+    }
+    if (!cores.hasZapret) return;
+    _busy('Подбираю стратегию zapret…');
+    zapretScores.clear();
+    await WinNet.killZapretDirect();
+    const probes = [
+      ('https://www.youtube.com/generate_204', true),
+      ('https://redirector.googlevideo.com/report_mapping?di=no', false),
+      ('https://i.ytimg.com/generate_204', true),
+      ('https://discord.com/api/v9/experiments', false),
+    ];
+    String? best;
+    var bestScore = -1;
+    var bestMs = 1 << 30;
+    for (var i = 0; i < zapretList.length; i++) {
+      final z = zapretList[i];
+      busyText = 'Стратегия ${i + 1}/${zapretList.length}: ${z.name}';
+      progress = i / zapretList.length;
+      notifyListeners();
+      ManagedProc? w;
+      try {
+        w = await cores.startWinws(z);
+        if (w == null) {
+          zapretScores[z.name] = -1;
+          continue;
+        }
+        var score = 0;
+        var total = 0;
+        final res = await Future.wait(
+            probes.map((p) => httpProbe(p.$1, timeoutSec: 6, strict: p.$2)));
+        for (final ms in res) {
+          if (ms != null) {
+            score++;
+            total += ms;
+          }
+        }
+        zapretScores[z.name] = score;
+        log('zapret «${z.name}»: $score/${probes.length}');
+        if (score > bestScore || (score == bestScore && total < bestMs)) {
+          bestScore = score;
+          bestMs = total;
+          best = z.name;
+        }
+        if (score == probes.length && total < 2500) break; // отличный результат — дальше не ищем
+      } catch (e) {
+        log('zapret: $e');
+      } finally {
+        await w?.kill();
+        await Future.delayed(const Duration(milliseconds: 400));
+      }
+    }
+    _idle();
+    if (best != null && bestScore > 0) {
+      zapretName = best;
+      status = 'Лучшая стратегия zapret: $best ($bestScore/${probes.length})';
+    } else {
+      status = 'Ни одна стратегия не открыла YouTube. Попробуй VLESS или МУЛЬТИ';
+    }
+    await save();
+    notifyListeners();
   }
 
   // ---------- Подбор стратегии ByeDPI ----------

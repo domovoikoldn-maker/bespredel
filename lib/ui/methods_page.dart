@@ -57,6 +57,26 @@ class _MethodsPageState extends State<MethodsPage> {
         ),
       );
 
+  Future<void> _pickZapret() async {
+    if (!app.isAdmin) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (c) => AlertDialog(
+          title: Text('Нужны права администратора', style: mono(size: 16, weight: FontWeight.w800)),
+          content: const Text(
+              'Подбор запускает zapret 20+ раз. Чтобы не нажимать «Да» в каждом окне UAC, перезапусти Беспредел от администратора.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Отмена')),
+            FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('Перезапустить')),
+          ],
+        ),
+      );
+      if (ok == true) await app.relaunchAsAdmin();
+      return;
+    }
+    await app.autoPickZapret();
+  }
+
   void _changed() {
     if (app.connected) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -131,13 +151,36 @@ class _MethodsPageState extends State<MethodsPage> {
 
           // Zapret
           if (app.isWindows) ...[
-            const SectionTitle('Zapret (winws) — стратегия'),
-            for (var i = 0; i < zapretPresets.length; i++)
+            SectionTitle('Zapret — ${app.zapretList.length} стратегий Flowseal',
+                trailing: TextButton.icon(
+                  onPressed: app.busy || app.connected ? null : _pickZapret,
+                  icon: const Icon(Icons.auto_fix_high_rounded, size: 18),
+                  label: const Text('Подобрать'),
+                )),
+            Panel(
+              accent: kPink,
+              padding: const EdgeInsets.all(12),
+              child: Text(
+                'Стратегии подходят не всем провайдерам. Нажми «Подобрать» — Беспредел по очереди '
+                'запустит каждую и проверит видео YouTube и Discord (1–3 мин, нужны права администратора).',
+                style: mono(size: 11, color: kMuted),
+              ),
+            ),
+            const SizedBox(height: 8),
+            if (app.busy && app.busyText.startsWith('Стратегия'))
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(app.busyText, style: mono(color: kCyan, size: 12)),
+              ),
+            for (final z in app.zapretList)
               _radio(
-                selected: app.zapretPreset == i,
-                title: zapretPresets[i].name,
+                selected: app.zapretName == z.name,
+                title: z.name,
+                subtitle: app.zapretScores.containsKey(z.name)
+                    ? (app.zapretScores[z.name]! < 0 ? 'не запустилась' : 'тест: ${app.zapretScores[z.name]}/4')
+                    : null,
                 onTap: () {
-                  app.update(() => app.zapretPreset = i);
+                  app.update(() => app.zapretName = z.name);
                   _changed();
                 },
               ),

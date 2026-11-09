@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../app_state.dart';
 import '../models.dart';
+import 'home_page.dart' show flag;
 import 'theme.dart';
 
 class ServersPage extends StatelessWidget {
@@ -37,7 +38,9 @@ class ServersPage extends StatelessWidget {
                 ]),
                 const SizedBox(height: 6),
                 Text(
-                  'Всего ${app.servers.length} • рабочих ${app.aliveCount} • источников ${app.sources.where((s) => s.enabled).length}',
+                  'всего ${app.servers.length} • рабочих ${app.aliveCount}'
+                  '${app.ruExitCount > 0 ? ' • выход в РФ ${app.ruExitCount}' : ''}'
+                  ' • источников ${app.sources.where((s) => s.enabled).length}',
                   style: mono(size: 12, color: kMuted),
                 ),
                 const SizedBox(height: 14),
@@ -185,7 +188,10 @@ class _ServerTile extends StatelessWidget {
     final selected = app.selectedKey == s.key;
     String ping;
     Color pc;
-    if (s.tested) {
+    if (s.tested && s.alive && s.badExit) {
+      ping = '${s.country} ✗';
+      pc = kDanger;
+    } else if (s.tested) {
       ping = s.delayMs != null ? '${s.delayMs}ms' : 'DEAD';
       pc = pingColor(s.delayMs);
     } else if (s.tcpMs != null) {
@@ -226,6 +232,11 @@ class _ServerTile extends StatelessWidget {
                   const SizedBox(width: 6),
                   _Tag(s.network, kMuted),
                   const SizedBox(width: 6),
+                  if (s.country != null) ...[
+                    Text('${flag(s.country!)} ${s.country}',
+                        style: mono(size: 11, color: s.badExit ? kDanger : kCyan, weight: FontWeight.w700)),
+                    const SizedBox(width: 6),
+                  ],
                   Flexible(
                     child: Text(s.source, maxLines: 1, overflow: TextOverflow.ellipsis,
                         style: const TextStyle(color: kMuted, fontSize: 11)),

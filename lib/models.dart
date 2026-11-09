@@ -1,6 +1,8 @@
 // Модели данных и парсер ссылок vless://
 import 'dart:convert';
 
+const _badExit = {'RU', 'BY', 'CN', 'IR', 'KP', 'SY', 'CU'};
+
 class SubSource {
   String name;
   String url;
@@ -34,6 +36,7 @@ class VlessServer {
   int? tcpMs; // TCP-пинг
   int? delayMs; // реальная задержка через ядро
   bool tested = false; // проходил ли реальный тест
+  String? country; // страна выхода (Cloudflare trace)
   String source = '';
 
   VlessServer({
@@ -56,6 +59,9 @@ class VlessServer {
 
   bool get isReality => security == 'reality';
   bool get alive => tested && delayMs != null;
+  bool get badExit => country != null && _badExit.contains(country);
+  /// Пригоден для «всего»: жив и выход не в РФ/Беларуси/Китае и т.п.
+  bool get good => alive && !badExit;
 
   bool get valid {
     if (uuid.isEmpty || host.isEmpty || port <= 0 || port > 65535) return false;
@@ -69,6 +75,7 @@ class VlessServer {
         'tcp': tcpMs,
         'delay': delayMs,
         'tested': tested,
+        'cc': country,
         'src': source,
       };
 
@@ -78,6 +85,7 @@ class VlessServer {
     s.tcpMs = j['tcp'] as int?;
     s.delayMs = j['delay'] as int?;
     s.tested = (j['tested'] ?? false) as bool;
+    s.country = j['cc'] as String?;
     s.source = (j['src'] ?? '') as String;
     return s;
   }

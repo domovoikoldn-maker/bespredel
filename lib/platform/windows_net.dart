@@ -164,6 +164,13 @@ exit 0
 ''', elevated: true, timeout: const Duration(seconds: 45));
   }
 
+  /// Убить winws без UAC (когда приложение и так от администратора).
+  static Future<void> killZapretDirect() async {
+    try {
+      await Process.run('taskkill', ['/F', '/IM', 'winws.exe', '/T']);
+    } catch (_) {}
+  }
+
   static Future<bool> isZapretRunning() async {
     try {
       final r = await Process.run('tasklist', ['/FI', 'IMAGENAME eq winws.exe', '/NH']);

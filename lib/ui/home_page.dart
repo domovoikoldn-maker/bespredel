@@ -240,6 +240,18 @@ class _Terminal extends StatelessWidget {
                 maxLines: 2, overflow: TextOverflow.ellipsis, style: mono(size: 12, color: color, weight: FontWeight.w700)),
           ),
         ]),
+        if (app.exitCountry != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Text(
+              '> выход в интернет: ${flag(app.exitCountry!)} ${app.exitCountry}'
+              '${badExitCountries.contains(app.exitCountry) ? '  ⚠ заблокированный регион' : ''}',
+              style: mono(
+                  size: 11,
+                  color: badExitCountries.contains(app.exitCountry) ? kDanger : kCyan,
+                  weight: FontWeight.w700),
+            ),
+          ),
         for (final l in tail)
           Padding(
             padding: const EdgeInsets.only(top: 3),
@@ -309,8 +321,8 @@ class _ServerCard extends StatelessWidget {
             const SizedBox(height: 3),
             Text(
               s == null || multi
-                  ? 'всего: ${app.servers.length} • живых: ${app.aliveCount}'
-                  : '${s.security.toUpperCase()} • ${s.network} • ${s.source}',
+                  ? 'всего: ${app.servers.length} • рабочих: ${app.aliveCount}'
+                  : '${s.country != null ? '${flag(s.country!)} ${s.country} • ' : ''}${s.security.toUpperCase()} • ${s.network}',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: mono(size: 11, color: kMuted),
@@ -352,10 +364,14 @@ class _ServiceTile extends StatelessWidget {
       trailing = Text('---', style: mono(size: 11, color: kMuted));
     } else if (r < 0) {
       accent = kDanger;
-      trailing = Text('BLOCK', style: mono(size: 11, color: kDanger, weight: FontWeight.w900));
+      final n = app.checkNotes[name];
+      trailing = Text((n ?? 'BLOCK').toUpperCase(),
+          style: mono(size: 11, color: kDanger, weight: FontWeight.w900));
     } else {
       accent = kGreen;
-      trailing = Text('OK ${r}ms', style: mono(size: 11, color: kGreen, weight: FontWeight.w800));
+      final n = app.checkNotes[name];
+      trailing = Text('OK${n != null && n.isNotEmpty ? ' $n' : ''} ${r}ms',
+          style: mono(size: 11, color: kGreen, weight: FontWeight.w800));
     }
     return Panel(
       accent: accent,
@@ -366,4 +382,12 @@ class _ServiceTile extends StatelessWidget {
       ]),
     );
   }
+}
+
+/// Эмодзи-флаг страны по коду (DE -> 🇩🇪).
+String flag(String cc) {
+  if (cc.length != 2) return '';
+  final a = cc.toUpperCase().codeUnitAt(0) - 0x41 + 0x1F1E6;
+  final b = cc.toUpperCase().codeUnitAt(1) - 0x41 + 0x1F1E6;
+  return String.fromCharCodes([a, b]);
 }

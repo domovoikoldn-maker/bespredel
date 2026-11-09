@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'platform/android_vpn.dart';
+import 'presets.dart';
 
 class ManagedProc {
   final String name;
@@ -57,9 +58,38 @@ class CoreRunner {
       : '$_nativeDir/libbyedpi.so';
 
   String get zapretDir => '$_winCores\\zapret';
-  String get winwsPath => '$zapretDir\\winws.exe';
-  String get zapretBin => '$zapretDir\\files\\';
-  String get zapretList => '$zapretDir\\lists\\list-general.txt';
+  String get zapretBinDir => '$zapretDir\\bin\\';
+  String get zapretListsDir => '$zapretDir\\lists\\';
+  String get winwsPath => '${zapretBinDir}winws.exe';
+
+  /// Стратегии Flowseal из strategies.json (кладётся при сборке).
+  List<ZapretPreset> loadZapretStrategies() {
+    try {
+      final f = File('$zapretDir\\strategies.json');
+      if (f.existsSync()) {
+        final l = (jsonDecode(f.readAsStringSync()) as List)
+            .map((e) => ZapretPreset((e as Map)['name'] as String, e['args'] as String))
+            .toList();
+        if (l.isNotEmpty) return l;
+      }
+    } catch (e) {
+      log('strategies.json: $e');
+    }
+    return const [];
+  }
+
+  String zapretArgs(ZapretPreset p) =>
+      p.args.replaceAll('%BIN%', zapretBinDir).replaceAll('%LISTS%', zapretListsDir);
+
+  /// Запуск winws напрямую (когда приложение уже от администратора).
+  Future<ManagedProc?> startWinws(ZapretPreset p) async {
+    final args = splitArgs(zapretArgs(p));
+    final proc = await Process.start(winwsPath, args, workingDirectory: zapretBinDir);
+    final mp = ManagedProc('winws', proc, log);
+    await Future.delayed(const Duration(milliseconds: 1500));
+    if (mp.exited) return null;
+    return mp;
+  }
 
   bool get hasXray => File(xrayPath).existsSync();
   bool get hasCiadpi => File(ciadpiPath).existsSync();
@@ -134,4 +164,56 @@ Future<int?> tcpPing(String host, int port, {int timeoutMs = 3000}) async {
   } catch (_) {
     return null;
   }
+}
+
+/// Разбор строки аргументов с учётом кавычек: --a="x y" -> --a=x y
+List<String> splitArgs(String s) {
+  final out = <String>[];
+  final cur = StringBuffer();
+  var inQ = false;
+  var has = false;
+  for (final ch in s.split('')) {
+    if (ch == '"') {
+      inQ = !inQ;
+      has = true;
+    } else if (ch == ' ' && !inQ) {
+      if (has || cur.isNotEmpty) out.add(cur.toString());
+      cur.clear();
+      has = false;
+    } else {
+      cur.write(ch);
+    }
+  }
+  if (has || cur.isNotEmpty) out.add(cur.toString());
+  return out;
+}
+
+/// GET с телом ответа (через локальный HTTP-прокси или напрямую).
+Future<(int, String)?> httpGet(String url, {int? proxyPort, int timeoutSec = 8}) async {
+  final client = HttpClient()
+    ..connectionTimeout = Duration(seconds: timeoutSec)
+    ..userAgent =
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
+  if (proxyPort != null) client.findProxy = (_) => 'PROXY 127.0.0.1:$proxyPort';
+  try {
+    final req = await client.getUrl(Uri.parse(url)).timeout(Duration(seconds: timeoutSec));
+    final resp = await req.close().timeout(Duration(seconds: timeoutSec));
+    final body = await resp
+        .transform(const Utf8Decoder(allowMalformed: true))
+        .join()
+        .timeout(Duration(seconds: timeoutSec));
+    return (resp.statusCode, body.length > 200000 ? body.substring(0, 200000) : body);
+  } catch (_) {
+    return null;
+  } finally {
+    client.close(force: true);
+  }
+}
+
+/// Страна выхода по Cloudflare trace (loc=XX).
+Future<String?> traceCountry(String host, {int? proxyPort, int timeoutSec = 8}) async {
+  final r = await httpGet('https://$host/cdn-cgi/trace', proxyPort: proxyPort, timeoutSec: timeoutSec);
+  if (r == null || r.$1 != 200) return null;
+  final m = RegExp(r'^loc=([A-Z]{2})', multiLine: true).firstMatch(r.$2);
+  return m?.group(1);
 }

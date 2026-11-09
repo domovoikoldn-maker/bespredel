@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../platform/android_vpn.dart';
 import '../main.dart' show Logo;
 import 'theme.dart';
 
@@ -40,6 +41,28 @@ class SettingsPage extends StatelessWidget {
               ]),
             ),
           ],
+          if (app.isAndroid) ...[
+            const SectionTitle('Работа в фоне'),
+            Panel(
+              accent: kPink,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text('Чтобы Android не убивал Беспредел в фоне', style: mono(weight: FontWeight.w800)),
+                const SizedBox(height: 6),
+                Text(
+                    '1) Разреши работу без ограничений батареи (кнопка ниже).\n'
+                    '2) Xiaomi/Huawei/Honor/OPPO/realme: в настройках приложения включи «Автозапуск» и закрепи его в недавних.\n'
+                    '3) Разреши уведомления — значок ключа VPN показывается вместе с уведомлением.',
+                    style: mono(size: 11, color: kMuted)),
+                const SizedBox(height: 10),
+                NeonButton(
+                  label: 'Отключить экономию батареи',
+                  icon: Icons.battery_charging_full_rounded,
+                  color: kPink,
+                  onPressed: () => AndroidVpn.ignoreBatteryOptimizations(),
+                ),
+              ]),
+            ),
+          ],
           const SectionTitle('Интерфейс'),
           Panel(
             padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
@@ -75,7 +98,7 @@ class SettingsPage extends StatelessWidget {
             child: Column(children: [
               _core('Xray-core (VLESS+Reality)', app.cores.hasXray),
               _core('ByeDPI (ciadpi)', app.cores.hasCiadpi),
-              if (app.isWindows) _core('zapret (winws + WinDivert)', app.cores.hasZapret),
+              if (app.isWindows) _core('zapret Flowseal (${app.zapretList.length} стратегий)', app.cores.hasZapret),
               if (app.isAndroid) _core('hev-socks5-tunnel (VPN)', true),
             ]),
           ),
@@ -113,7 +136,7 @@ class SettingsPage extends StatelessWidget {
                 const Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     GlitchText('BESPREDEL', size: 20),
-                    Text('ベスプレデル • v2.0.0', style: TextStyle(color: kMuted)),
+                    Text('ベスプレデル • v2.1.0', style: TextStyle(color: kMuted)),
                   ]),
                 ),
               ]),

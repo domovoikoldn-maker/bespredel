@@ -8,6 +8,8 @@ import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -59,6 +61,21 @@ class MainActivity : FlutterActivity() {
                         result.success(true)
                     }
                     "isRunning" -> result.success(BespredelVpnService.isRunning)
+                    "lastError" -> result.success(BespredelVpnService.lastError)
+                    "ignoreBattery" -> {
+                        try {
+                            val pm = getSystemService(POWER_SERVICE) as PowerManager
+                            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                                startActivity(
+                                    Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
+                                        .setData(Uri.parse("package:$packageName"))
+                                )
+                            }
+                            result.success(true)
+                        } catch (e: Exception) {
+                            result.success(false)
+                        }
+                    }
                     "openUrl" -> {
                         try {
                             startActivity(

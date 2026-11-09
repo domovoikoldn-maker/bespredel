@@ -29,11 +29,17 @@ class BespredelVpnService : VpnService() {
         val port = intent?.getIntExtra("socksPort", 10808) ?: 10808
         val dnsOnly = intent?.getBooleanExtra("dnsOnly", false) ?: false
         val title = intent?.getStringExtra("title") ?: "Беспредел"
-        goForeground(title)
+        lastError = ""
+        try {
+            goForeground(title)
+        } catch (e: Throwable) {
+            Log.w(TAG, "foreground failed", e)
+        }
         try {
             startTunnel(port, dnsOnly)
         } catch (e: Throwable) {
             Log.e(TAG, "start failed", e)
+            lastError = e.javaClass.simpleName + ": " + (e.message ?: "")
             stopTunnel()
             stopSelf()
         }
@@ -78,7 +84,9 @@ class BespredelVpnService : VpnService() {
               log-level: warn
             """.trimIndent()
         )
-        TProxyService.TProxyStartService(conf.absolutePath, pfd.fd)
+        if (!TProxyService.TProxyStartService(conf.absolutePath, pfd.fd)) {
+            throw IllegalStateException("tun2socks не запустился")
+        }
         isRunning = true
     }
 
@@ -149,5 +157,8 @@ class BespredelVpnService : VpnService() {
 
         @Volatile
         var isRunning = false
+
+        @Volatile
+        var lastError = ""
     }
 }

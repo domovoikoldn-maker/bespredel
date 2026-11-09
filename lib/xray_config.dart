@@ -7,7 +7,12 @@ bool _ne(String? s) => s != null && s.isNotEmpty;
 Map<String, dynamic> vlessOutbound(VlessServer s, String tag) {
   final q = s.q;
   final net = s.network;
-  final stream = <String, dynamic>{'network': net == 'tcp' ? 'raw' : net};
+  final stream = <String, dynamic>{
+    'network': net == 'tcp' ? 'raw' : net,
+    // Резолвить адрес сервера встроенным DNS Xray: на Android у Go-бинарника
+    // нет системного резолвера, и серверы с доменом вместо IP не подключались.
+    'sockopt': {'domainStrategy': 'UseIPv4'},
+  };
   final sec = s.security;
   final fp = _ne(q['fp']) ? q['fp'] : 'chrome';
   if (sec == 'reality') {
@@ -150,6 +155,7 @@ Map<String, dynamic> _dns(DnsPreset selected) {
         'skipFallback': true,
       },
       selected.doh.replaceFirst('https://', 'https+local://'),
+      if (selected.dohHost != 'cloudflare-dns.com') 'https+local://cloudflare-dns.com/dns-query',
       selected.ips.first,
     ],
     'queryStrategy': 'UseIPv4',
@@ -290,6 +296,18 @@ Map<String, dynamic> buildMainConfig({
   };
 }
 
+Map<String, dynamic> _testDns() {
+  final hosts = <String, dynamic>{};
+  for (final d in dnsPresets) {
+    hosts[d.dohHost] = d.ips;
+  }
+  return {
+    'hosts': hosts,
+    'servers': ['https+local://cloudflare-dns.com/dns-query', 'https+local://dns.google/dns-query', '1.1.1.1'],
+    'queryStrategy': 'UseIPv4',
+  };
+}
+
 /// Конфиг для пакетного теста: на каждый сервер свой HTTP-вход.
 Map<String, dynamic> buildTestConfig(List<VlessServer> list, int basePort) {
   final inbounds = <Map<String, dynamic>>[];
@@ -313,6 +331,7 @@ Map<String, dynamic> buildTestConfig(List<VlessServer> list, int basePort) {
   outbounds.add({'tag': 'direct', 'protocol': 'freedom'});
   return {
     'log': {'loglevel': 'error'},
+    'dns': _testDns(),
     'inbounds': inbounds,
     'outbounds': outbounds,
     'routing': {'rules': rules},

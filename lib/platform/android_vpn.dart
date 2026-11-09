@@ -26,6 +26,12 @@ class AndroidVpn {
 
   static Future<void> openUrl(String url) => _ch.invokeMethod('openUrl', {'url': url});
 
+  static Future<String> lastError() async =>
+      await _ch.invokeMethod<String>('lastError') ?? '';
+
+  static Future<bool> ignoreBatteryOptimizations() async =>
+      await _ch.invokeMethod<bool>('ignoreBattery') ?? false;
+
   static Future<bool> isRunning() async =>
       await _ch.invokeMethod<bool>('isRunning') ?? false;
 }

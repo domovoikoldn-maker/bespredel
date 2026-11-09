@@ -53,10 +53,10 @@ const defaultSources = <List<Object>>[
     'https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS_mobile.txt', true],
   ['igareck — ЧС VLESS (все)',
     'https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/BLACK_VLESS_RUS.txt', false],
-  ['igareck — Белые списки (Reality, моб.)',
-    'https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/Vless-Reality-White-Lists-Rus-Mobile.txt', true],
+  ['igareck — Белые списки (выход в РФ, только для моб. интернета)',
+    'https://raw.githubusercontent.com/igareck/vpn-configs-for-russia/main/Vless-Reality-White-Lists-Rus-Mobile.txt', false],
   ['barry-far — VLESS',
-    'https://raw.githubusercontent.com/barry-far/V2ray-Config/main/Splitted-By-Protocol/vless.txt', false],
+    'https://raw.githubusercontent.com/barry-far/V2ray-Config/main/Splitted-By-Protocol/vless.txt', true],
   ['Epodonios — VLESS',
     'https://raw.githubusercontent.com/Epodonios/v2ray-configs/main/Splitted-By-Protocol/vless.txt', false],
   ['soroushmirzaei — VLESS',
@@ -107,34 +107,27 @@ const byeDpiPresets = <ByeDpiPreset>[
 
 class ZapretPreset {
   final String name;
-  final String args; // %BIN% — папка files, %LIST% — хостлист
+  final String args; // %BIN% — папка bin, %LISTS% — папка lists
   const ZapretPreset(this.name, this.args);
 }
 
-const _zBase = '--wf-tcp=80,443 --wf-udp=443,50000-50100 '
-    '--filter-udp=443 --hostlist="%LIST%" --dpi-desync=fake --dpi-desync-repeats=6 '
-    '--dpi-desync-fake-quic="%BIN%quic_initial_www_google_com.bin" --new '
-    '--filter-udp=50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-repeats=6 --new '
-    '--filter-tcp=80 --hostlist="%LIST%" --dpi-desync=fake,multisplit --dpi-desync-autottl=2 '
-    '--dpi-desync-fooling=md5sig --new ';
-
-const zapretPresets = <ZapretPreset>[
-  ZapretPreset('General (seqovl)',
-      '$_zBase--filter-tcp=443 --hostlist="%LIST%" --dpi-desync=multisplit '
+/// Запасная стратегия, если strategies.json не найден (из general.bat Flowseal).
+const zapretFallback = <ZapretPreset>[
+  ZapretPreset('General',
+      '--wf-tcp=80,443 --wf-udp=443,50000-50100 '
+          '--filter-udp=443 --hostlist="%LISTS%list-general.txt" --dpi-desync=fake --dpi-desync-repeats=6 '
+          '--dpi-desync-fake-quic="%BIN%quic_initial_www_google_com.bin" --new '
+          '--filter-udp=50000-50100 --filter-l7=discord,stun --dpi-desync=fake --dpi-desync-repeats=6 --new '
+          '--filter-tcp=443 --hostlist="%LISTS%list-google.txt" --ip-id=zero --dpi-desync=multisplit '
           '--dpi-desync-split-seqovl=681 --dpi-desync-split-pos=1 '
-          '--dpi-desync-split-seqovl-pattern="%BIN%tls_clienthello_www_google_com.bin"'),
-  ZapretPreset('ALT (fake + fakedsplit)',
-      '$_zBase--filter-tcp=443 --hostlist="%LIST%" --dpi-desync=fake,fakedsplit '
-          '--dpi-desync-autottl=5 --dpi-desync-repeats=6 --dpi-desync-fooling=badseq '
-          '--dpi-desync-fake-tls="%BIN%tls_clienthello_www_google_com.bin"'),
-  ZapretPreset('FAKE TLS (multidisorder)',
-      '$_zBase--filter-tcp=443 --hostlist="%LIST%" --dpi-desync=fake,multidisorder '
-          '--dpi-desync-split-pos=midsld --dpi-desync-repeats=8 '
-          '--dpi-desync-fooling=md5sig,badseq '
-          '--dpi-desync-fake-tls="%BIN%tls_clienthello_www_google_com.bin"'),
-  ZapretPreset('Простой (split)',
-      '$_zBase--filter-tcp=443 --hostlist="%LIST%" --dpi-desync=split2 --dpi-desync-split-pos=1'),
+          '--dpi-desync-split-seqovl-pattern="%BIN%tls_clienthello_www_google_com.bin" --new '
+          '--filter-tcp=80,443 --hostlist="%LISTS%list-general.txt" --dpi-desync=multisplit '
+          '--dpi-desync-split-seqovl=568 --dpi-desync-split-pos=1 '
+          '--dpi-desync-split-seqovl-pattern="%BIN%tls_clienthello_4pda_to.bin"'),
 ];
+
+/// Страны, из которых ИИ-сервисы и YouTube недоступны/замедлены — такие VLESS-выходы бесполезны.
+const badExitCountries = {'RU', 'BY', 'CN', 'IR', 'KP', 'SY', 'CU'};
 
 class DnsPreset {
   final String name;
@@ -173,12 +166,12 @@ const aiDomains = <String>[
 
 /// Сайты, проверяемые на главном экране.
 const serviceChecks = <(String, String)>[
-  ('YouTube', 'https://www.youtube.com/generate_204'),
-  ('Claude', 'https://claude.ai/login'),
-  ('Gemini', 'https://gemini.google.com/'),
-  ('ChatGPT', 'https://chatgpt.com/'),
-  ('Telegram', 'https://web.telegram.org/'),
-  ('Discord', 'https://discord.com/api/v9/experiments'),
+  ('YouTube', 'видео'),
+  ('Gemini', 'регион'),
+  ('Claude', 'регион'),
+  ('ChatGPT', 'регион'),
+  ('Telegram', ''),
+  ('Discord', ''),
 ];
 
 const kSocksPort = 10808;
