@@ -32,6 +32,7 @@ $extra = Join-Path $PSScriptRoot '..\cores\zapret-lists\list-general.txt'
 if (Test-Path $extra) {
   Get-Content $extra | Add-Content (Join-Path "$z\lists" 'list-general-user.txt')
 }
+$env:PYTHONUTF8 = "1"
 python "$PSScriptRoot\zapret_strategies.py" "$tmp\fs" "$z\strategies.json"
 if ($LASTEXITCODE -ne 0) { throw 'не удалось сконвертировать стратегии' }
 if (-not (Test-Path "$z\bin\winws.exe")) { throw 'winws.exe не найден' }

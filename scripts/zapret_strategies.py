@@ -48,9 +48,9 @@ def main():
         items.append({'name': name, 'args': args})
     items.sort(key=lambda x: natural_key(x['name'].replace('General', 'general', 1)))
     if not items:
-        sys.exit('не найдено ни одной стратегии')
+        sys.exit('no strategies found')
     out.write_text(json.dumps(items, ensure_ascii=False, indent=1), encoding='utf-8')
-    print(f'стратегий: {len(items)}')
+    print(f'strategies: {len(items)}')
 
 
 if __name__ == '__main__':
