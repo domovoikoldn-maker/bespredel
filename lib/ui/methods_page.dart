@@ -28,10 +28,12 @@ class _MethodsPageState extends State<MethodsPage> {
       Padding(
         padding: const EdgeInsets.only(bottom: 6),
         child: Material(
-          color: selected ? kRed.withOpacity(0.14) : kSurface,
-          borderRadius: BorderRadius.circular(14),
+          color: selected ? kPink.withOpacity(0.12) : kSurface,
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(4),
+              side: BorderSide(color: selected ? kPink : kCyan.withOpacity(0.12))),
           child: InkWell(
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(4),
             onTap: onTap,
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -41,11 +43,11 @@ class _MethodsPageState extends State<MethodsPage> {
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+                    Text(title, style: mono(weight: FontWeight.w700)),
                     if (subtitle != null)
                       Padding(
                         padding: const EdgeInsets.only(top: 2),
-                        child: Text(subtitle, style: const TextStyle(color: kMuted, fontSize: 12)),
+                        child: Text(subtitle, style: mono(color: kMuted, size: 11)),
                       ),
                   ]),
                 ),
@@ -70,9 +72,20 @@ class _MethodsPageState extends State<MethodsPage> {
       builder: (context, _) => ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         children: [
-          const Text('Методы обхода', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800)),
-          const SizedBox(height: 4),
-          const Text('Тонкая настройка каждого способа', style: TextStyle(color: kMuted)),
+          const PageTitle('МЕТОДЫ', jp: 'バイパス // тонкая настройка каждого способа'),
+
+          // Фрагментация
+          const SectionTitle('Фрагментация (Xray) — профиль'),
+          for (var i = 0; i < fragPresets.length; i++)
+            _radio(
+              selected: app.fragPreset == i,
+              title: fragPresets[i].name,
+              subtitle: 'packets=${fragPresets[i].packets}  length=${fragPresets[i].length}  interval=${fragPresets[i].interval}',
+              onTap: () {
+                app.update(() => app.fragPreset = i);
+                _changed();
+              },
+            ),
 
           // ByeDPI
           SectionTitle('ByeDPI — стратегия',
@@ -130,10 +143,10 @@ class _MethodsPageState extends State<MethodsPage> {
               ),
             SwitchListTile(
               contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-              activeColor: kRed,
+              activeColor: kCyan,
               title: const Text('Включать DNS Comss вместе с zapret'),
               subtitle: const Text('Чтобы заодно открывались ChatGPT, Claude, Gemini',
-                  style: TextStyle(color: kMuted, fontSize: 12)),
+                  style: TextStyle(color: kMuted, fontSize: 11)),
               value: app.zapretWithDns,
               onChanged: (v) => app.update(() => app.zapretWithDns = v),
             ),
@@ -162,14 +175,32 @@ class _MethodsPageState extends State<MethodsPage> {
             ),
           ),
 
+          if (app.isWindows)
+            SwitchListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+              title: const Text('DNS-режим: менять ещё и DNS Windows'),
+              subtitle: Text('Чтобы ИИ-сервисы открывались во всех программах, а не только в браузере. Нужен админ.',
+                  style: mono(color: kMuted, size: 11)),
+              value: app.winSystemDns,
+              onChanged: (v) => app.update(() => app.winSystemDns = v),
+            ),
+          if (app.isWindows)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 4, 4, 0),
+              child: Text(
+                '⚠ Если ИИ-сайты не открываются, отключи в браузере «Безопасный DNS» (Chrome/Edge: Настройки → Конфиденциальность → Безопасность). Иначе браузер обходит DNS Беспредела.',
+                style: mono(color: const Color(0xFFFFD166), size: 11),
+              ),
+            ),
+
           // Маршрутизация
           const SectionTitle('Маршрутизация'),
           SwitchListTile(
             contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-            activeColor: kRed,
+            activeColor: kCyan,
             title: const Text('Российские сайты напрямую'),
             subtitle: const Text('.ru, .рф, VK, Яндекс, банки, Госуслуги — мимо VLESS/ByeDPI',
-                style: TextStyle(color: kMuted, fontSize: 12)),
+                style: TextStyle(color: kMuted, fontSize: 11)),
             value: app.ruDirect,
             onChanged: (v) {
               app.update(() => app.ruDirect = v);

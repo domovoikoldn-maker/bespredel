@@ -17,19 +17,18 @@ class ServersPage extends StatelessWidget {
         return Scaffold(
           backgroundColor: Colors.transparent,
           floatingActionButton: FloatingActionButton.extended(
-            backgroundColor: kRed,
-            foregroundColor: Colors.white,
+            backgroundColor: kPink,
+            foregroundColor: Colors.black,
             onPressed: () => _addManual(context),
             icon: const Icon(Icons.add_link_rounded),
-            label: const Text('Добавить'),
+            label: Text('ДОБАВИТЬ', style: mono(color: Colors.black, weight: FontWeight.w900, spacing: 1)),
           ),
           body: CustomScrollView(slivers: [
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
               sliver: SliverList.list(children: [
                 Row(children: [
-                  const Text('Серверы', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800)),
-                  const Spacer(),
+                  const Expanded(child: PageTitle('СЕРВЕРЫ', jp: 'サーバー // VLESS + REALITY')),
                   IconButton(
                     tooltip: 'Источники подписок',
                     onPressed: () => _sources(context),
@@ -39,25 +38,25 @@ class ServersPage extends StatelessWidget {
                 const SizedBox(height: 6),
                 Text(
                   'Всего ${app.servers.length} • рабочих ${app.aliveCount} • источников ${app.sources.where((s) => s.enabled).length}',
-                  style: const TextStyle(color: kMuted),
+                  style: mono(size: 12, color: kMuted),
                 ),
                 const SizedBox(height: 14),
                 Row(children: [
                   Expanded(
-                    child: FilledButton.icon(
-                      style: FilledButton.styleFrom(backgroundColor: kSurface2, foregroundColor: Colors.white),
+                    child: NeonButton(
+                      label: 'Собрать',
+                      icon: Icons.cloud_download_rounded,
                       onPressed: app.busy ? null : app.updateServers,
-                      icon: const Icon(Icons.cloud_download_rounded),
-                      label: const Text('Обновить'),
                     ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
-                    child: FilledButton.icon(
-                      style: FilledButton.styleFrom(backgroundColor: kRed, foregroundColor: Colors.white),
+                    child: NeonButton(
+                      label: 'Проверить',
+                      icon: Icons.speed_rounded,
+                      color: kPink,
+                      filled: true,
                       onPressed: app.busy || app.servers.isEmpty ? null : app.testServers,
-                      icon: const Icon(Icons.speed_rounded),
-                      label: const Text('Проверить'),
                     ),
                   ),
                 ]),
@@ -187,7 +186,7 @@ class _ServerTile extends StatelessWidget {
     String ping;
     Color pc;
     if (s.tested) {
-      ping = s.delayMs != null ? '${s.delayMs} мс' : 'не работает';
+      ping = s.delayMs != null ? '${s.delayMs}ms' : 'DEAD';
       pc = pingColor(s.delayMs);
     } else if (s.tcpMs != null) {
       ping = 'tcp ${s.tcpMs}';
@@ -197,10 +196,10 @@ class _ServerTile extends StatelessWidget {
       pc = kMuted;
     }
     return Material(
-      color: selected ? kRed.withOpacity(0.14) : kSurface,
-      borderRadius: BorderRadius.circular(14),
+      color: selected ? kPink.withOpacity(0.12) : kSurface,
+      borderRadius: BorderRadius.circular(4),
       child: InkWell(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(4),
         onTap: () => app.selectServer(s),
         onLongPress: () {
           Clipboard.setData(ClipboardData(text: s.raw));
@@ -209,8 +208,8 @@ class _ServerTile extends StatelessWidget {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: selected ? kRed : Colors.white.withOpacity(0.05)),
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: selected ? kPink : kCyan.withOpacity(0.12)),
           ),
           child: Row(children: [
             Icon(selected ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
@@ -219,7 +218,7 @@ class _ServerTile extends StatelessWidget {
             Expanded(
               child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Text(s.name, maxLines: 1, overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontWeight: FontWeight.w600)),
+                    style: mono(weight: FontWeight.w700)),
                 const SizedBox(height: 4),
                 Row(children: [
                   _Tag(s.security == 'none' ? 'NONE' : s.security.toUpperCase(),
@@ -235,7 +234,7 @@ class _ServerTile extends StatelessWidget {
               ]),
             ),
             const SizedBox(width: 8),
-            Text(ping, style: TextStyle(color: pc, fontWeight: FontWeight.w700, fontSize: 13)),
+            Text(ping, style: mono(color: pc, weight: FontWeight.w800, size: 12)),
           ]),
         ),
       ),
@@ -252,9 +251,10 @@ class _Tag extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
         decoration: BoxDecoration(
           color: color.withOpacity(0.14),
-          borderRadius: BorderRadius.circular(6),
+          borderRadius: BorderRadius.circular(2),
+          border: Border.all(color: color.withOpacity(0.4)),
         ),
-        child: Text(text, style: TextStyle(color: color, fontSize: 10, fontWeight: FontWeight.w700)),
+        child: Text(text, style: mono(color: color, size: 9.5, weight: FontWeight.w800)),
       );
 }
 
@@ -281,7 +281,7 @@ class _SourcesSheet extends StatelessWidget {
             ),
             Row(children: [
               const Expanded(
-                child: Text('Источники подписок', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+                child: PageTitle('ИСТОЧНИКИ'),
               ),
               TextButton.icon(
                 onPressed: () => _add(context),

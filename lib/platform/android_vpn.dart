@@ -24,6 +24,8 @@ class AndroidVpn {
 
   static Future<void> stop() => _ch.invokeMethod('stop');
 
+  static Future<void> openUrl(String url) => _ch.invokeMethod('openUrl', {'url': url});
+
   static Future<bool> isRunning() async =>
       await _ch.invokeMethod<bool>('isRunning') ?? false;
 }

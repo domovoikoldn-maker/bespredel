@@ -12,20 +12,39 @@ if [ -f build.gradle ]; then
 
 android {
     defaultConfig {
-        ndk { abiFilters 'arm64-v8a', 'x86_64' }
+        ndk { abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86_64' }
     }
     packagingOptions {
         jniLibs { useLegacyPackaging = true }
     }
 }
 EOF
+  if [ -n "${BP_STORE_PASS:-}" ] && [ -f bespredel.jks ]; then
+    cat >> build.gradle <<'EOF'
+
+android {
+    signingConfigs {
+        bespredel {
+            storeFile file("bespredel.jks")
+            storePassword System.getenv("BP_STORE_PASS")
+            keyAlias "bespredel"
+            keyPassword System.getenv("BP_STORE_PASS")
+        }
+    }
+    buildTypes {
+        release { signingConfig signingConfigs.bespredel }
+    }
+}
+EOF
+    echo "подпись: постоянный ключ bespredel.jks"
+  fi
 elif [ -f build.gradle.kts ]; then
   sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' build.gradle.kts
   cat >> build.gradle.kts <<'EOF'
 
 android {
     defaultConfig {
-        ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a", "x86_64") }
     }
     packaging {
         jniLibs { useLegacyPackaging = true }

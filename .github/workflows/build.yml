@@ -42,14 +42,19 @@ jobs:
           cache: true
 
       - name: Платформенные файлы
+        env:
+          BP_STORE_PASS: ${{ secrets.BP_STORE_PASS || 'bespredel-domovoi4ik' }}
         run: |
           flutter create --org com.domovoi4ik --project-name bespredel --platforms=android .
+          cp keystore/bespredel.jks android/app/bespredel.jks
           bash scripts/patch_android.sh
 
       - name: Сборка APK
+        env:
+          BP_STORE_PASS: ${{ secrets.BP_STORE_PASS || 'bespredel-domovoi4ik' }}
         run: |
           flutter pub get
-          flutter build apk --release --target-platform android-arm64,android-x64
+          flutter build apk --release --target-platform android-arm,android-arm64,android-x64
           mkdir -p dist
           cp build/app/outputs/flutter-apk/app-release.apk dist/Bespredel-android.apk
 
@@ -97,11 +102,11 @@ jobs:
         shell: pwsh
         run: |
           flutter create --org com.domovoi4ik --project-name bespredel --platforms=windows .
-          # Заголовок окна «Беспредел»
+          # Заголовок окна: только латиница (кириллица без BOM ломается в MSVC)
           $main = 'windows/runner/main.cpp'
-          (Get-Content $main -Raw) -replace 'L"bespredel"', 'L"Беспредел"' | Set-Content $main -Encoding utf8
+          (Get-Content $main -Raw) -replace 'L"bespredel"', 'L"BESPREDEL"' | Set-Content $main -Encoding ascii
           $rc = 'windows/runner/Runner.rc'
-          (Get-Content $rc -Raw) -replace '"com.domovoi4ik"', '"domovoi4ik"' | Set-Content $rc -Encoding utf8
+          (Get-Content $rc -Raw) -replace '"com.domovoi4ik"', '"domovoi4ik"' -replace '"bespredel"', '"BESPREDEL"' | Set-Content $rc -Encoding utf8
 
       - name: Сборка
         shell: pwsh
@@ -137,5 +142,5 @@ jobs:
           files: dist/*
           body: |
             **Беспредел** — обход блокировок для Windows и Android. Разработчик: domovoi4ik.
-            - `Bespredel-android.apk` — Android 7.0+
+            - `Bespredel-android.apk` — Android 7.0+ (ARM 32/64-бит, x86_64)
             - `Bespredel-windows-x64.zip` — распакуй целиком и запусти `bespredel.exe`

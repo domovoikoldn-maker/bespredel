@@ -156,32 +156,83 @@ Map<String, dynamic> _dns(DnsPreset selected) {
   };
 }
 
-enum XrayMain { vless, byedpi, dnsOnly }
+enum XrayMain { vless, multi, fragment, byedpi, dnsOnly }
+
+Map<String, dynamic> fragOutbound(String tag, FragPreset f) => {
+      'tag': tag,
+      'protocol': 'freedom',
+      'settings': {
+        'domainStrategy': 'UseIPv4',
+        'fragment': {'packets': f.packets, 'length': f.length, 'interval': f.interval},
+      },
+    };
 
 /// Основной конфиг для подключения.
-/// vless   — всё через VLESS;
-/// byedpi  — всё через локальный ciadpi, ИИ-сайты напрямую по IP из Comss DNS;
-/// dnsOnly — только DNS (для Android), остальное напрямую.
+/// vless    — всё через один VLESS;
+/// multi    — балансировщик по нескольким VLESS + запасная фрагментация;
+/// fragment — без серверов, фрагментация TLS ClientHello;
+/// byedpi   — через локальный ciadpi;
+/// dnsOnly  — всё напрямую (через DoH), ИИ-сайты по IP из Comss DNS.
 Map<String, dynamic> buildMainConfig({
   required XrayMain kind,
   VlessServer? server,
+  List<VlessServer> pool = const [],
   required DnsPreset dns,
   required bool ruDirect,
+  FragPreset frag = const FragPreset('', 'tlshello', '100-200', '10-20'),
+  String testUrl = 'https://www.gstatic.com/generate_204',
 }) {
   final outbounds = <Map<String, dynamic>>[];
-  if (kind == XrayMain.vless) {
-    outbounds.add(vlessOutbound(server!, 'proxy'));
-    outbounds.add({'tag': 'direct', 'protocol': 'freedom'});
-  } else if (kind == XrayMain.byedpi) {
-    outbounds.add(socksOutbound('proxy', kByeDpiPort));
-    outbounds.add({'tag': 'direct', 'protocol': 'freedom'});
-  } else {
-    outbounds.add({'tag': 'direct', 'protocol': 'freedom'});
+  Map<String, dynamic>? observatory;
+  final balancers = <Map<String, dynamic>>[];
+
+  switch (kind) {
+    case XrayMain.vless:
+      outbounds.add(vlessOutbound(server!, 'proxy'));
+      break;
+    case XrayMain.multi:
+      for (var i = 0; i < pool.length; i++) {
+        outbounds.add(vlessOutbound(pool[i], 'p$i'));
+      }
+      observatory = {
+        'subjectSelector': ['p'],
+        'pingConfig': {
+          'destination': testUrl,
+          'interval': '30s',
+          'connectivity': '',
+          'timeout': '6s',
+          'sampling': 2,
+        },
+      };
+      balancers.add({
+        'tag': 'bal',
+        'selector': ['p'],
+        'strategy': {'type': 'leastPing'},
+        'fallbackTag': 'frag',
+      });
+      break;
+    case XrayMain.fragment:
+      break;
+    case XrayMain.byedpi:
+      outbounds.add(socksOutbound('proxy', kByeDpiPort));
+      break;
+    case XrayMain.dnsOnly:
+      break;
   }
+  outbounds.add(fragOutbound('frag', frag));
+  outbounds.add({
+    'tag': 'direct',
+    'protocol': 'freedom',
+    'settings': {'domainStrategy': kind == XrayMain.dnsOnly ? 'UseIPv4' : 'AsIs'},
+  });
   outbounds.add({
     'tag': 'ai-direct',
     'protocol': 'freedom',
-    'settings': {'domainStrategy': 'UseIPv4'},
+    'settings': {
+      'domainStrategy': 'UseIPv4',
+      if (kind == XrayMain.fragment)
+        'fragment': {'packets': frag.packets, 'length': frag.length, 'interval': frag.interval},
+    },
   });
   outbounds.add({'tag': 'block', 'protocol': 'blackhole'});
   outbounds.add({'tag': 'dns-out', 'protocol': 'dns'});
@@ -196,16 +247,33 @@ Map<String, dynamic> buildMainConfig({
     },
     {'type': 'field', 'ip': _privateCidrs, 'outboundTag': 'direct'},
   ];
-  if (kind != XrayMain.vless) {
-    // ИИ-сервисы: резолвим через Comss и идём напрямую на их прокси
+  final viaServer = kind == XrayMain.vless || kind == XrayMain.multi;
+  if (!viaServer) {
+    // ИИ-сервисы: резолвим через Comss и идём на их прокси напрямую
     rules.add({'type': 'field', 'domain': aiDomains, 'outboundTag': 'ai-direct'});
   }
-  if (kind == XrayMain.byedpi) {
-    // QUIC не обходится через SOCKS-DPI, заставляем браузер уйти на TCP
+  if (kind == XrayMain.byedpi || kind == XrayMain.fragment) {
+    // QUIC не обходится этими методами — заставляем браузер уйти на TCP
     rules.add({'type': 'field', 'network': 'udp', 'port': '443', 'outboundTag': 'block'});
   }
   if (ruDirect && kind != XrayMain.dnsOnly) {
     rules.add({'type': 'field', 'domain': _ruDomains, 'outboundTag': 'direct'});
+  }
+  // Правило «по умолчанию»
+  switch (kind) {
+    case XrayMain.vless:
+    case XrayMain.byedpi:
+      rules.add({'type': 'field', 'network': 'tcp,udp', 'outboundTag': 'proxy'});
+      break;
+    case XrayMain.multi:
+      rules.add({'type': 'field', 'network': 'tcp,udp', 'balancerTag': 'bal'});
+      break;
+    case XrayMain.fragment:
+      rules.add({'type': 'field', 'network': 'tcp,udp', 'outboundTag': 'frag'});
+      break;
+    case XrayMain.dnsOnly:
+      rules.add({'type': 'field', 'network': 'tcp,udp', 'outboundTag': 'direct'});
+      break;
   }
 
   return {
@@ -213,7 +281,12 @@ Map<String, dynamic> buildMainConfig({
     'dns': _dns(dns),
     'inbounds': _inbounds(),
     'outbounds': outbounds,
-    'routing': {'domainStrategy': 'AsIs', 'rules': rules},
+    if (observatory != null) 'burstObservatory': observatory,
+    'routing': {
+      'domainStrategy': 'AsIs',
+      'rules': rules,
+      if (balancers.isNotEmpty) 'balancers': balancers,
+    },
   };
 }
 

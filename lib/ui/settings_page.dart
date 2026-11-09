@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../app_state.dart';
+import '../main.dart' show Logo;
 import 'theme.dart';
 
 class SettingsPage extends StatelessWidget {
@@ -14,7 +15,41 @@ class SettingsPage extends StatelessWidget {
       builder: (context, _) => ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
         children: [
-          const Text('Ещё', style: TextStyle(fontSize: 26, fontWeight: FontWeight.w800)),
+          const PageTitle('СИСТЕМА', jp: 'システム // настройки и журнал'),
+          if (app.isWindows) ...[
+            const SectionTitle('Права'),
+            Panel(
+              accent: app.isAdmin ? kGreen : kPink,
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(app.isAdmin ? '✓ Запущено от администратора' : 'Запущено без прав администратора',
+                    style: mono(weight: FontWeight.w800, color: app.isAdmin ? kGreen : Colors.white)),
+                const SizedBox(height: 6),
+                Text(
+                    app.isAdmin
+                        ? 'Zapret и смена DNS работают без лишних запросов.'
+                        : 'Для Zapret каждый раз будет появляться окно UAC. Проще перезапустить программу от администратора.',
+                    style: mono(size: 11, color: kMuted)),
+                if (!app.isAdmin) ...[
+                  const SizedBox(height: 10),
+                  NeonButton(
+                      label: 'Перезапустить от админа',
+                      icon: Icons.admin_panel_settings_rounded,
+                      color: kPink,
+                      onPressed: app.relaunchAsAdmin),
+                ],
+              ]),
+            ),
+          ],
+          const SectionTitle('Интерфейс'),
+          Panel(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            child: SwitchListTile(
+              title: const Text('Матричный дождь на фоне'),
+              subtitle: Text('Выключи, если тормозит или садится батарея', style: mono(size: 11, color: kMuted)),
+              value: app.matrixRain,
+              onChanged: (v) => app.update(() => app.matrixRain = v),
+            ),
+          ),
           const SectionTitle('Проверка серверов'),
           Panel(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
@@ -64,7 +99,7 @@ class SettingsPage extends StatelessWidget {
                       itemCount: app.logs.length,
                       itemBuilder: (_, i) => Text(
                         app.logs[app.logs.length - 1 - i],
-                        style: const TextStyle(fontFamily: 'monospace', fontSize: 11, color: Colors.white70),
+                        style: mono(size: 10.5, color: kGreen.withOpacity(0.8)),
                       ),
                     ),
             ),
@@ -73,19 +108,12 @@ class SettingsPage extends StatelessWidget {
           Panel(
             child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                Container(
-                  width: 52,
-                  height: 52,
-                  decoration: BoxDecoration(gradient: kGradient, borderRadius: BorderRadius.circular(16)),
-                  alignment: Alignment.center,
-                  child: const Text('Б',
-                      style: TextStyle(fontSize: 30, fontWeight: FontWeight.w900, color: Colors.white)),
-                ),
+                const Logo(size: 52),
                 const SizedBox(width: 14),
                 const Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('Беспредел', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-                    Text('версия 1.0.0', style: TextStyle(color: kMuted)),
+                    GlitchText('BESPREDEL', size: 20),
+                    Text('ベスプレデル • v2.0.0', style: TextStyle(color: kMuted)),
                   ]),
                 ),
               ]),
@@ -101,7 +129,7 @@ class SettingsPage extends StatelessWidget {
               const SizedBox(height: 10),
               const Text(
                 'Публичные серверы принадлежат неизвестным людям: не вводи через них пароли от банков и важных аккаунтов без HTTPS.',
-                style: TextStyle(color: kOrange, fontSize: 12, height: 1.4),
+                style: TextStyle(color: kPink, fontSize: 12, height: 1.4),
               ),
             ]),
           ),
@@ -113,7 +141,7 @@ class SettingsPage extends StatelessWidget {
   Widget _core(String name, bool ok) => Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Row(children: [
-          Icon(ok ? Icons.check_circle_rounded : Icons.error_rounded, color: ok ? kGreen : kRed, size: 18),
+          Icon(ok ? Icons.check_circle_rounded : Icons.error_rounded, color: ok ? kGreen : kDanger, size: 18),
           const SizedBox(width: 10),
           Expanded(child: Text(name)),
           Text(ok ? 'найдено' : 'нет', style: TextStyle(color: ok ? kMuted : kRed, fontSize: 12)),

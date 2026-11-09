@@ -14,10 +14,12 @@ TC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin"
 API=24
 rm -rf "$WORK"; mkdir -p "$WORK" "$JNI"
 
-# abi : имя в релизе Xray : триплет clang
+# abi : имя архива в релизе Xray : триплет clang
+# Для 32-битных ARM у Xray нет android-сборки — берём статический linux arm32-v7a (Go, работает на Android).
 TARGETS=(
-  "arm64-v8a:arm64-v8a:aarch64-linux-android"
-  "x86_64:amd64:x86_64-linux-android"
+  "arm64-v8a:android-arm64-v8a:aarch64-linux-android"
+  "armeabi-v7a:linux-arm32-v7a:armv7a-linux-androideabi"
+  "x86_64:android-amd64:x86_64-linux-android"
 )
 
 echo "== Xray-core =="
@@ -25,7 +27,7 @@ for t in "${TARGETS[@]}"; do
   IFS=: read -r abi xa _ <<<"$t"
   mkdir -p "$JNI/$abi" "$WORK/xray-$abi"
   curl -fsSL -o "$WORK/xray-$abi.zip" \
-    "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-android-$xa.zip"
+    "https://github.com/XTLS/Xray-core/releases/latest/download/Xray-$xa.zip"
   unzip -o -q "$WORK/xray-$abi.zip" -d "$WORK/xray-$abi"
   cp "$WORK/xray-$abi/xray" "$JNI/$abi/libxray.so"
 done
@@ -52,7 +54,7 @@ git clone --depth 1 --recursive https://github.com/heiher/hev-socks5-tunnel "$WO
     APP_BUILD_SCRIPT=jni/Android.mk \
     NDK_APPLICATION_MK=jni/Application.mk \
     "APP_CFLAGS=-O3 -DPKGNAME=com/domovoi4ik/bespredel -DCLSNAME=TProxyService" \
-    "APP_ABI=arm64-v8a x86_64" \
+    "APP_ABI=arm64-v8a armeabi-v7a x86_64" \
     APP_PLATFORM=android-$API -j4 )
 for t in "${TARGETS[@]}"; do
   IFS=: read -r abi _ _ <<<"$t"

@@ -1,30 +1,51 @@
 // Встроенные пресеты: источники конфигов, стратегии ByeDPI / zapret, DNS.
 import 'models.dart';
 
-enum BypassMode { auto, vless, byedpi, zapret, dns }
+enum BypassMode { auto, vless, multi, fragment, byedpi, zapret, dns }
 
 extension BypassModeInfo on BypassMode {
   String get title => const {
-        BypassMode.auto: 'Авто',
+        BypassMode.auto: 'АВТО',
         BypassMode.vless: 'VLESS',
-        BypassMode.byedpi: 'ByeDPI',
-        BypassMode.zapret: 'Zapret',
+        BypassMode.multi: 'МУЛЬТИ',
+        BypassMode.fragment: 'ФРАГМЕНТ',
+        BypassMode.byedpi: 'BYEDPI',
+        BypassMode.zapret: 'ZAPRET',
         BypassMode.dns: 'DNS',
       }[this]!;
 
   String get desc => const {
         BypassMode.auto:
-            'Сам выберет лучший рабочий сервер VLESS, если их нет — включит ByeDPI + умный DNS.',
+            'Сам соберёт и проверит серверы. Есть несколько рабочих — включит Мульти-VLESS, нет — Фрагментацию + DNS для ИИ.',
         BypassMode.vless:
-            'Весь трафик через VLESS+Reality сервер из открытых подписок. Работает всё: YouTube, Telegram, Claude, Gemini.',
+            'Весь трафик через один VLESS+Reality сервер из открытых подписок. Работает всё: YouTube, Telegram, Claude, Gemini.',
+        BypassMode.multi:
+            'До 8 лучших VLESS-серверов сразу. Ядро каждые 30 с проверяет их и само переключается на живой. Если упали все — уходит во фрагментацию.',
+        BypassMode.fragment:
+            'Без серверов: ядро Xray режет TLS-приветствие на кусочки, и DPI не видит, куда ты идёшь. DNS через DoH. Не нужен админ.',
         BypassMode.byedpi:
-            'Локальный обход DPI без серверов. YouTube, Discord и др. + ИИ-сервисы через DNS Comss. Telegram может не работать.',
+            'Локальный обход DPI (ByeDPI) без серверов. YouTube, Discord и др. + ИИ-сервисы через DNS Comss. Telegram может не работать.',
         BypassMode.zapret:
-            'zapret (winws) — обход DPI на уровне драйвера. Нужны права администратора. Только Windows.',
+            'zapret (winws) — обход DPI на уровне драйвера, работает для всех программ (Discord, игры). Нужны права администратора.',
         BypassMode.dns:
-            'Только смена DNS. Открывает ChatGPT, Claude, Gemini, Copilot и т.п. с геоблоком, без замедления скорости.',
+            'Только ИИ-сервисы с геоблоком (ChatGPT, Claude, Gemini, Copilot) через DNS Comss. Скорость не режется.',
       }[this]!;
 }
+
+class FragPreset {
+  final String name;
+  final String packets;
+  final String length;
+  final String interval;
+  const FragPreset(this.name, this.packets, this.length, this.interval);
+}
+
+const fragPresets = <FragPreset>[
+  FragPreset('Стандарт', 'tlshello', '100-200', '10-20'),
+  FragPreset('Мелкая нарезка', 'tlshello', '10-20', '5-10'),
+  FragPreset('Агрессивный', '1-3', '1-5', '1-2'),
+  FragPreset('Быстрый', 'tlshello', '3-5', '1'),
+];
 
 const defaultSources = <List<Object>>[
   // [имя, url, включён]

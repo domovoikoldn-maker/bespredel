@@ -34,6 +34,12 @@ class AppState extends ChangeNotifier {
   bool ruDirect = true;
   bool onlyReality = false;
   bool zapretWithDns = true;
+  bool winSystemDns = false; // DNS-режим: менять ещё и DNS Windows (нужен админ)
+  int fragPreset = 0;
+  bool matrixRain = true;
+  bool isAdmin = false;
+  String initError = '';
+  bool ready = false;
   String testUrl = 'https://www.gstatic.com/generate_204';
   bool _proxyLeft = false;
   bool _dnsLeft = false;
@@ -63,12 +69,16 @@ class AppState extends ChangeNotifier {
   List<BypassMode> get availableModes => [
         BypassMode.auto,
         BypassMode.vless,
+        BypassMode.multi,
+        BypassMode.fragment,
         BypassMode.byedpi,
         if (isWindows) BypassMode.zapret,
         BypassMode.dns,
       ];
 
   DnsPreset get dns => dnsPresets[math.min(math.max(dnsPreset, 0), dnsPresets.length - 1)];
+
+  FragPreset get frag => fragPresets[math.min(math.max(fragPreset, 0), fragPresets.length - 1)];
 
   String get byedpiArgs => byedpiPreset < 0
       ? byedpiCustom
@@ -121,9 +131,25 @@ class AppState extends ChangeNotifier {
   // ---------- Инициализация и сохранение ----------
 
   Future<void> init() async {
-    dataDir = await getApplicationSupportDirectory();
+    try {
+      await _init();
+    } catch (e, st) {
+      initError = '$e';
+      log('Ошибка запуска: $e\n$st');
+    }
+    ready = true;
+    notifyListeners();
+  }
+
+  Future<void> _init() async {
+    try {
+      dataDir = await getApplicationSupportDirectory();
+    } catch (_) {
+      dataDir = Directory.systemTemp;
+    }
     await dataDir.create(recursive: true);
     WinNet.tmp = dataDir;
+    WinNet.log = log;
     cores.log = log;
     try {
       await cores.init(dataDir);
@@ -134,13 +160,18 @@ class AppState extends ChangeNotifier {
     if (isWindows) {
       // восстановление после аварийного закрытия
       await WinNet.killOwnCores();
+      isAdmin = await WinNet.isAdmin();
       if (_proxyLeft) {
         await WinNet.clearProxy();
         _proxyLeft = false;
       }
     }
-    if (isAndroid && await AndroidVpn.isRunning()) {
-      await AndroidVpn.stop();
+    if (isAndroid) {
+      try {
+        if (await AndroidVpn.isRunning()) await AndroidVpn.stop();
+      } catch (e) {
+        log('VPN: $e');
+      }
     }
     log('Беспредел запущен. Ядра: xray=${cores.hasXray}, byedpi=${cores.hasCiadpi}'
         '${isWindows ? ', zapret=${cores.hasZapret}' : ''}');
@@ -176,6 +207,9 @@ class AppState extends ChangeNotifier {
       ruDirect = (j['ruDirect'] ?? true) as bool;
       onlyReality = (j['onlyReality'] ?? false) as bool;
       zapretWithDns = (j['zapretWithDns'] ?? true) as bool;
+      winSystemDns = (j['winSystemDns'] ?? false) as bool;
+      fragPreset = (j['fragPreset'] ?? 0) as int;
+      matrixRain = (j['matrixRain'] ?? true) as bool;
       testUrl = (j['testUrl'] ?? testUrl) as String;
       _proxyLeft = (j['proxyLeft'] ?? false) as bool;
       _dnsLeft = (j['dnsLeft'] ?? false) as bool;
@@ -197,6 +231,9 @@ class AppState extends ChangeNotifier {
       'ruDirect': ruDirect,
       'onlyReality': onlyReality,
       'zapretWithDns': zapretWithDns,
+      'winSystemDns': winSystemDns,
+      'fragPreset': fragPreset,
+      'matrixRain': matrixRain,
       'testUrl': testUrl,
       'proxyLeft': _proxyLeft,
       'dnsLeft': _dnsLeft,
@@ -423,6 +460,13 @@ class AppState extends ChangeNotifier {
         case BypassMode.vless:
           await _connectVless();
           break;
+        case BypassMode.multi:
+          await _connectMulti();
+          break;
+        case BypassMode.fragment:
+          await _startXrayMain(XrayMain.fragment);
+          await _attachSystem(dnsOnly: false);
+          break;
         case BypassMode.byedpi:
           await _connectByeDpi();
           break;
@@ -453,6 +497,10 @@ class AppState extends ChangeNotifier {
     switch (m) {
       case BypassMode.vless:
         return 'VLESS • ${activeServer?.name ?? ''}';
+      case BypassMode.multi:
+        return 'МУЛЬТИ • ${_multiCount} серверов, автопереключение';
+      case BypassMode.fragment:
+        return 'ФРАГМЕНТ • ${frag.name}';
       case BypassMode.byedpi:
         return 'ByeDPI • ${byedpiPreset < 0 ? 'своя стратегия' : byeDpiPresets[byedpiPreset].name}';
       case BypassMode.zapret:
@@ -471,17 +519,34 @@ class AppState extends ChangeNotifier {
     if (servers.isNotEmpty && aliveCount == 0) {
       await testServers(limit: 60);
     }
-    final best = visibleServers.where((s) => s.alive).firstOrNull;
-    if (best != null) {
-      if (selected == null || !selected!.alive) selectedKey = best.key;
+    final alive = visibleServers.where((s) => s.alive).toList();
+    if (alive.length >= 2) return BypassMode.multi;
+    if (alive.isNotEmpty) {
+      if (selected == null || !selected!.alive) selectedKey = alive.first.key;
       return BypassMode.vless;
     }
-    log('Авто: рабочих VLESS нет, включаю ByeDPI + DNS');
-    return BypassMode.byedpi;
+    log('Авто: рабочих VLESS нет, включаю фрагментацию + DNS для ИИ');
+    return BypassMode.fragment;
   }
 
-  Future<void> _startXrayMain(XrayMain kind, {VlessServer? server}) async {
-    final cfg = buildMainConfig(kind: kind, server: server, dns: dns, ruDirect: ruDirect);
+  int _multiCount = 0;
+
+  Future<void> _connectMulti() async {
+    var pool = visibleServers.where((s) => s.alive).take(8).toList();
+    if (pool.isEmpty) {
+      await testServers(limit: 80);
+      pool = visibleServers.where((s) => s.alive).take(8).toList();
+    }
+    if (pool.isEmpty) throw Exception('Нет рабочих серверов. Попробуй режим ФРАГМЕНТ или ByeDPI');
+    _multiCount = pool.length;
+    activeServer = null;
+    await _startXrayMain(XrayMain.multi, pool: pool);
+    await _attachSystem(dnsOnly: false);
+  }
+
+  Future<void> _startXrayMain(XrayMain kind, {VlessServer? server, List<VlessServer> pool = const []}) async {
+    final cfg = buildMainConfig(
+        kind: kind, server: server, pool: pool, dns: dns, ruDirect: ruDirect, frag: frag, testUrl: testUrl);
     _xray = await cores.startXray(cfg, 'xray');
     if (_xray == null) {
       throw Exception('Xray не запустился — смотри журнал');
@@ -526,8 +591,10 @@ class AppState extends ChangeNotifier {
         .args
         .replaceAll('%BIN%', cores.zapretBin)
         .replaceAll('%LIST%', cores.zapretList);
-    final ok = await WinNet.startZapret(cores.winwsPath, args, cores.zapretDir);
-    if (!ok) throw Exception('winws не запустился (нужны права администратора)');
+    status = isAdmin ? 'Запускаю winws…' : 'Подтверди запуск от администратора…';
+    notifyListeners();
+    final err = await WinNet.startZapret(cores.winwsPath, args, cores.zapretDir);
+    if (err != null) throw Exception(err);
     _zapretOn = true;
     if (zapretWithDns) {
       final dnsOk = await WinNet.setDns(dnsPresets.firstWhere((d) => d.aiUnlock));
@@ -540,15 +607,17 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _connectDns() async {
-    if (isWindows) {
+    await _startXrayMain(XrayMain.dnsOnly);
+    await _attachSystem(dnsOnly: true);
+    if (isWindows && winSystemDns) {
       final ok = await WinNet.setDns(dns);
-      if (!ok) throw Exception('Не удалось сменить DNS (нужны права администратора)');
-      _dnsOn = true;
-      _dnsLeft = true;
-      await save();
-    } else {
-      await _startXrayMain(XrayMain.dnsOnly);
-      await _attachSystem(dnsOnly: true);
+      if (ok) {
+        _dnsOn = true;
+        _dnsLeft = true;
+        await save();
+      } else {
+        log('DNS Windows не изменён (нет прав администратора) — работает через прокси');
+      }
     }
   }
 
@@ -704,5 +773,24 @@ class AppState extends ChangeNotifier {
     selectedKey = null;
     notifyListeners();
     save();
+  }
+
+  // ---------- Разное ----------
+
+  Future<void> relaunchAsAdmin() async {
+    if (!isWindows) return;
+    if (connected) await disconnect(silent: true);
+    final ok = await WinNet.relaunchAsAdmin();
+    if (ok) exit(0);
+  }
+
+  /// Подключить Telegram к локальному SOCKS5 Беспредела (удобно для Telegram Desktop).
+  Future<void> connectTelegram() async {
+    const url = 'tg://socks?server=127.0.0.1&port=$kSocksPort';
+    if (isWindows) {
+      await WinNet.openUrl(url);
+    } else {
+      await AndroidVpn.openUrl(url);
+    }
   }
 }
