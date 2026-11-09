@@ -18,6 +18,9 @@ enum ConnState { off, connecting, on, error }
 
 final app = AppState();
 
+/// Для compute(): верхнеуровневая функция, без захвата состояния.
+List<VlessServer> _parseValid(String body) => parseSubscription(body).where((s) => s.valid).toList();
+
 class AppState extends ChangeNotifier {
   late Directory dataDir;
   final cores = CoreRunner();
@@ -329,7 +332,8 @@ class AppState extends ChangeNotifier {
     await Future.wait(enabled.map((src) async {
       try {
         final body = await _fetch(src.url);
-        final list = parseSubscription(body).where((s) => s.valid).toList();
+        // разбор тысяч ссылок — в отдельном потоке, чтобы интерфейс не подвисал
+        final list = await compute(_parseValid, body);
         src.lastCount = list.length;
         src.lastError = null;
         for (final s in list) {
@@ -378,20 +382,41 @@ class AppState extends ChangeNotifier {
     return added > 0;
   }
 
+  /// TCP-пинг всех серверов: пул из 128 параллельных проверок, каждый адрес пингуется один раз.
   Future<void> tcpPingAll() async {
-    final list = servers.toList();
-    const chunk = 48;
-    for (var i = 0; i < list.length; i += chunk) {
-      final part = list.sublist(i, math.min(i + chunk, list.length));
-      await Future.wait(part.map((s) async => s.tcpMs = await tcpPing(s.host, s.port)));
-      progress = (i + part.length) / list.length;
-      busyText = 'TCP-пинг: ${i + part.length}/${list.length}';
-      notifyListeners();
+    final byEndpoint = <String, List<VlessServer>>{};
+    for (final s in servers) {
+      byEndpoint.putIfAbsent('${s.host}:${s.port}', () => []).add(s);
     }
+    final eps = byEndpoint.entries.toList();
+    var next = 0;
+    var done = 0;
+    var lastUi = 0;
+    Future<void> worker() async {
+      while (true) {
+        final i = next++;
+        if (i >= eps.length) return;
+        final first = eps[i].value.first;
+        final ms = await tcpPing(first.host, first.port);
+        for (final s in eps[i].value) {
+          s.tcpMs = ms;
+        }
+        done++;
+        if (done - lastUi >= 64 || done == eps.length) {
+          lastUi = done;
+          progress = done / eps.length;
+          busyText = 'TCP-пинг: $done/${eps.length}';
+          notifyListeners();
+        }
+      }
+    }
+
+    await Future.wait(List.generate(math.min(128, eps.length), (_) => worker()));
   }
 
-  /// Реальная проверка серверов через Xray (пакетами).
-  Future<void> testServers({int limit = 150}) async {
+  /// Реальная проверка через Xray: два ядра параллельно, пакеты по 40 серверов,
+  /// остановка, как только найдено [target] хороших серверов.
+  Future<void> testServers({int limit = 300, int target = 15}) async {
     if (busy) return;
     if (!cores.hasXray) {
       status = 'Ядро Xray не найдено';
@@ -400,21 +425,36 @@ class AppState extends ChangeNotifier {
     }
     _busy('TCP-пинг…');
     await tcpPingAll();
-    var list = visibleServers.where((s) => s.tcpMs != null).toList()
-      ..sort((a, b) => a.tcpMs!.compareTo(b.tcpMs!));
     for (final s in servers.where((s) => s.tcpMs == null)) {
       s.tested = true;
       s.delayMs = null;
     }
+    // Порядок: сначала бывшие хорошие, потом Reality, потом остальные — по TCP-пингу
+    int rank(VlessServer s) => (s.good ? 0 : (s.isReality ? 1 : 2)) * 100000 + s.tcpMs!;
+    var list = visibleServers.where((s) => s.tcpMs != null).toList()..sort((a, b) => rank(a).compareTo(rank(b)));
     if (list.length > limit) list = list.sublist(0, limit);
-    const batch = 25;
-    for (var i = 0; i < list.length; i += batch) {
-      final part = list.sublist(i, math.min(i + batch, list.length));
-      busyText = 'Проверка через ядро: ${i + part.length}/${list.length}';
-      progress = (i + part.length) / list.length;
-      notifyListeners();
-      await _testBatch(part);
+
+    const batch = 40;
+    final batches = <List<VlessServer>>[
+      for (var i = 0; i < list.length; i += batch) list.sublist(i, math.min(i + batch, list.length))
+    ];
+    var nextBatch = 0;
+    var checked = 0;
+    var found = 0;
+    Future<void> worker(int id) async {
+      while (found < target) {
+        final i = nextBatch++;
+        if (i >= batches.length) return;
+        await _testBatch(batches[i], basePort: kTestBasePort + id * 100, name: 'xray-test$id');
+        checked += batches[i].length;
+        found = servers.where((s) => s.good).length;
+        busyText = 'Проверка через ядро: $checked/${list.length} • хороших: $found';
+        progress = checked / list.length;
+        notifyListeners();
+      }
     }
+
+    await Future.wait([worker(0), worker(1)]);
     final alive = aliveCount;
     _idle();
     final ru = ruExitCount;
@@ -427,18 +467,19 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _testBatch(List<VlessServer> b) async {
+  Future<void> _testBatch(List<VlessServer> b, {int basePort = kTestBasePort, String name = 'xray-test'}) async {
     ManagedProc? p;
     try {
-      p = await cores.startXray(buildTestConfig(b, kTestBasePort), 'xray-test');
+      p = await cores.startXray(buildTestConfig(b, basePort), name, readyPort: basePort);
     } catch (e) {
       log('Тест: $e');
     }
     if (p == null) {
+      // кривой конфиг в пакете — делим пополам и проверяем отдельно
       if (b.length > 1) {
         final h = b.length ~/ 2;
-        await _testBatch(b.sublist(0, h));
-        await _testBatch(b.sublist(h));
+        await _testBatch(b.sublist(0, h), basePort: basePort, name: name);
+        await _testBatch(b.sublist(h), basePort: basePort, name: name);
       } else {
         b.first
           ..tested = true
@@ -448,17 +489,16 @@ class AppState extends ChangeNotifier {
     }
     await Future.wait([
       for (var i = 0; i < b.length; i++)
-        httpProbe(testUrl, proxyPort: kTestBasePort + i, timeoutSec: 7).then((ms) async {
+        httpProbe(testUrl, proxyPort: basePort + i, timeoutSec: 5).then((ms) async {
           b[i]
             ..tested = true
             ..delayMs = ms;
           if (ms != null) {
-            b[i].country = await traceCountry('www.cloudflare.com', proxyPort: kTestBasePort + i, timeoutSec: 7);
+            b[i].country = await traceCountry('www.cloudflare.com', proxyPort: basePort + i, timeoutSec: 5);
           }
         })
     ]);
     await p.kill();
-    notifyListeners();
   }
 
   // ---------- Подключение ----------
@@ -543,7 +583,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     if (servers.isEmpty) await updateServers();
     if (servers.isNotEmpty && aliveCount == 0) {
-      await testServers(limit: 100);
+      await testServers(target: 8);
     }
     final alive = visibleServers.where((s) => s.good).toList();
     if (alive.length >= 2) return BypassMode.multi;
@@ -560,7 +600,7 @@ class AppState extends ChangeNotifier {
   Future<void> _connectMulti() async {
     var pool = visibleServers.where((s) => s.good).take(8).toList();
     if (pool.isEmpty) {
-      await testServers(limit: 100);
+      await testServers(target: 8);
       pool = visibleServers.where((s) => s.good).take(8).toList();
     }
     if (pool.isEmpty) throw Exception('Нет рабочих серверов. Попробуй режим ФРАГМЕНТ или ByeDPI');

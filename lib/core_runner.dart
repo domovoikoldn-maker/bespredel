@@ -95,21 +95,26 @@ class CoreRunner {
   bool get hasCiadpi => File(ciadpiPath).existsSync();
   bool get hasZapret => Platform.isWindows && File(winwsPath).existsSync();
 
-  Future<ManagedProc?> _start(String name, String exe, List<String> args) async {
+  Future<ManagedProc?> _start(String name, String exe, List<String> args, {int? readyPort}) async {
     if (!File(exe).existsSync()) {
       throw Exception('Не найдено ядро: $exe');
     }
     final p = await Process.start(exe, args, workingDirectory: dataDir.path);
     final mp = ManagedProc(name, p, log);
-    await Future.delayed(const Duration(milliseconds: 900));
+    if (readyPort == null) {
+      await Future.delayed(const Duration(milliseconds: 700));
+    } else {
+      // ждём, пока ядро откроет порт (обычно 100–300 мс), а не фиксированные 0,9 с
+      await waitPort(readyPort, () => mp.exited);
+    }
     if (mp.exited) return null;
     return mp;
   }
 
-  Future<ManagedProc?> startXray(Map<String, dynamic> config, String name) async {
+  Future<ManagedProc?> startXray(Map<String, dynamic> config, String name, {int? readyPort}) async {
     final f = File('${dataDir.path}${Platform.pathSeparator}$name.json');
-    await f.writeAsString(const JsonEncoder.withIndent(' ').convert(config));
-    return _start(name, xrayPath, ['run', '-c', f.path]);
+    await f.writeAsString(jsonEncode(config));
+    return _start(name, xrayPath, ['run', '-c', f.path], readyPort: readyPort);
   }
 
   Future<ManagedProc?> startCiadpi(int port, String args, {String name = 'byedpi'}) async {
@@ -154,7 +159,7 @@ Future<int?> httpProbe(String url, {int? proxyPort, int timeoutSec = 8, bool str
   }
 }
 
-Future<int?> tcpPing(String host, int port, {int timeoutMs = 3000}) async {
+Future<int?> tcpPing(String host, int port, {int timeoutMs = 1500}) async {
   final sw = Stopwatch()..start();
   try {
     final s = await Socket.connect(host, port, timeout: Duration(milliseconds: timeoutMs));
@@ -216,4 +221,20 @@ Future<String?> traceCountry(String host, {int? proxyPort, int timeoutSec = 8}) 
   if (r == null || r.$1 != 200) return null;
   final m = RegExp(r'^loc=([A-Z]{2})', multiLine: true).firstMatch(r.$2);
   return m?.group(1);
+}
+
+/// Ждать, пока локальный порт начнёт принимать соединения.
+Future<bool> waitPort(int port, bool Function() dead, {int timeoutMs = 4000}) async {
+  final sw = Stopwatch()..start();
+  while (sw.elapsedMilliseconds < timeoutMs) {
+    if (dead()) return false;
+    try {
+      final s = await Socket.connect('127.0.0.1', port, timeout: const Duration(milliseconds: 300));
+      s.destroy();
+      return true;
+    } catch (_) {
+      await Future.delayed(const Duration(milliseconds: 60));
+    }
+  }
+  return false;
 }

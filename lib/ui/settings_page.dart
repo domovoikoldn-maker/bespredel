@@ -136,7 +136,7 @@ class SettingsPage extends StatelessWidget {
                 const Expanded(
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                     GlitchText('BESPREDEL', size: 20),
-                    Text('ベスプレデル • v2.1.0', style: TextStyle(color: kMuted)),
+                    Text('ベスプレデル • v2.2.0', style: TextStyle(color: kMuted)),
                   ]),
                 ),
               ]),
