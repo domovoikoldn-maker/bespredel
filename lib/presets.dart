@@ -16,7 +16,7 @@ extension BypassModeInfo on BypassMode {
 
   String get desc => const {
         BypassMode.auto:
-            'Сам соберёт и проверит серверы. Есть несколько рабочих — включит Мульти-VLESS, нет — Фрагментацию + DNS для ИИ.',
+            'Сам соберёт и проверит серверы и подключит самый быстрый рабочий. Если рабочих нет — Фрагментация + DNS для ИИ.',
         BypassMode.vless:
             'Весь трафик через один VLESS+Reality сервер из открытых подписок. Работает всё: YouTube, Telegram, Claude, Gemini.',
         BypassMode.multi:

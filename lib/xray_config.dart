@@ -2,6 +2,13 @@
 import 'models.dart';
 import 'presets.dart';
 
+const _stickyDomains = [
+  'domain:youtube.com', 'domain:youtu.be', 'domain:googlevideo.com', 'domain:ytimg.com',
+  'domain:ggpht.com', 'domain:youtube-nocookie.com', 'domain:youtubei.googleapis.com',
+  'domain:googleapis.com', 'domain:google.com', 'domain:gstatic.com', 'domain:googleusercontent.com',
+  'domain:gemini.google.com',
+];
+
 bool _ne(String? s) => s != null && s.isNotEmpty;
 
 Map<String, dynamic> vlessOutbound(VlessServer s, String tag) {
@@ -214,7 +221,8 @@ Map<String, dynamic> buildMainConfig({
         'tag': 'bal',
         'selector': ['p'],
         'strategy': {'type': 'leastPing'},
-        'fallbackTag': 'frag',
+        // пока серверы не замерены — лучший сервер, а не прямой выход с российского IP
+        'fallbackTag': 'p0',
       });
       break;
     case XrayMain.fragment:
@@ -272,6 +280,9 @@ Map<String, dynamic> buildMainConfig({
       rules.add({'type': 'field', 'network': 'tcp,udp', 'outboundTag': 'proxy'});
       break;
     case XrayMain.multi:
+      // YouTube/Google — всегда через один сервер: ссылка на видео привязана к IP,
+      // с которого открыли страницу. Если видео идёт с другого IP — «Видео недоступно».
+      rules.add({'type': 'field', 'domain': _stickyDomains, 'outboundTag': 'p0'});
       rules.add({'type': 'field', 'network': 'tcp,udp', 'balancerTag': 'bal'});
       break;
     case XrayMain.fragment:

@@ -591,8 +591,8 @@ class AppState extends ChangeNotifier {
     if (servers.isNotEmpty && aliveCount == 0) {
       await testServers(target: 8);
     }
+    // Авто — один лучший сервер (как v2rayN/Hiddify): стабильнее для YouTube
     final alive = visibleServers.where((s) => s.good).toList();
-    if (alive.length >= 2) return BypassMode.multi;
     if (alive.isNotEmpty) {
       if (selected == null || !selected!.good) selectedKey = alive.first.key;
       return BypassMode.vless;
